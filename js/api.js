@@ -106,7 +106,7 @@ async function fetchActions() {
     _volet:    V[a.id_volet]          || '',
     _axe:      AX[a.id_axe]           || '',
     _action:   AA[a.id_action_axe]    || '',
-    _struct:   S[a.id_structure]      || '',
+    _struct:   resolveList(a.id_structure, S, ', ') || '',
     _modalite: M[a.id_modalite]       || '',
     _annee:    AN[a.id_annee]         || '',
     // ReferenceList → jointure multiple
@@ -124,7 +124,7 @@ async function fetchActions() {
 //   Numeric       → float
 async function createAction(fields) {
   // Convertir les ReferenceList au format natif Grist : ["L", id1, id2, ...]
-  ['id_contacts', 'id_publics', 'id_lieu'].forEach(key => {
+  ['id_contacts', 'id_publics', 'id_lieu', 'id_structure'].forEach(key => {
     const val = fields[key];
     if (Array.isArray(val) && val.length) {
       fields[key] = ['L'].concat(val);   // format attendu par l'API Grist

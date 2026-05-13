@@ -17,7 +17,7 @@ async function initSaisie() {
 function buildForm(refs) {
   fillSel('s-volet',   refs.volets,   'libelle');
   fillSel('s-axe',     refs.axes,     'libelle');
-  fillSel('s-struct',  refs.structs,  'code');
+  buildStructuresChips(refs.structs);
   fillSel('s-modalite',refs.modalites,'libelle');
 
   // Actions filtrées selon l'axe
@@ -73,6 +73,20 @@ function buildContactList(contacts) {
   });
 }
 
+function buildStructuresChips(structs) {
+  const wrap = document.getElementById('s-struct-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  structs.sort((a,b)=>(a.code||'').localeCompare(b.code||'')).forEach(s => {
+    const lbl = document.createElement('label');
+    lbl.className = 'chip';
+    lbl.innerHTML = `<input type="checkbox" name="struct" value="${s.id}">
+      <span class="cb"></span>
+      <span class="cl"><strong>${s.code}</strong> – ${s.libelle}</span>`;
+    wrap.appendChild(lbl);
+  });
+}
+
 function buildLieuxChips(lieux) {
   const wrap = document.getElementById('s-lieux');
   if (!wrap) return;
@@ -111,7 +125,7 @@ function buildPublicsChips(publics) {
 
 async function submitAction() {
   // Validation
-  const required = ['s-titre','s-volet','s-axe','s-action','s-struct'];
+  const required = ['s-titre','s-volet','s-axe','s-action'];
   let valid = true;
   required.forEach(id => {
     const el = document.getElementById(id);
@@ -136,7 +150,10 @@ async function submitAction() {
     id_volet:            +document.getElementById('s-volet').value   || null,
     id_axe:              +document.getElementById('s-axe').value     || null,
     id_action_axe:       +document.getElementById('s-action').value  || null,
-    id_structure:        +document.getElementById('s-struct').value  || null,
+    id_structure:        (() => {
+      const ids = [...document.querySelectorAll('input[name=struct]:checked')].map(c=>+c.value);
+      return ids.length ? ids : null;
+    })(),
     id_modalite:         +document.getElementById('s-modalite').value|| null,
     id_contacts:         contactIds.length ? contactIds : null,
     id_publics:          publicIds.length  ? publicIds  : null,
@@ -168,7 +185,7 @@ function resetForm() {
     const el=document.getElementById(id); if(el) el.value='';
   });
   document.getElementById('s-action').innerHTML='<option value="">— sélectionner un axe d\'abord —</option>';
-  document.querySelectorAll('input[name=contact],input[name=public],input[name=lieu]').forEach(c=>c.checked=false);
+  document.querySelectorAll('input[name=contact],input[name=public],input[name=lieu],input[name=struct]').forEach(c=>c.checked=false);
   document.querySelectorAll('.invalid').forEach(el=>el.classList.remove('invalid'));
 }
 

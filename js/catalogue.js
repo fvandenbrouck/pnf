@@ -60,7 +60,10 @@ function applyFilters() {
   FILTERED = ALL_ACTIONS.filter(a => {
     if (volet   && a.id_volet     != volet)   return false;
     if (axe     && a.id_axe       != axe)     return false;
-    if (struct  && a.id_structure  != struct)  return false;
+    if (struct) {
+      const structs = Array.isArray(a.id_structure) ? a.id_structure : [a.id_structure];
+      if (!structs.map(String).includes(String(struct))) return false;
+    }
     if (modal   && a.id_modalite   != modal)   return false;
     if (pub) {
       const pubs = Array.isArray(a.id_publics) ? a.id_publics : [a.id_publics];
