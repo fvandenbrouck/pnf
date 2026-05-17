@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cartes PNF</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --parchment: #f5f0e8;
+  --ink:       #1a1208;
+  --ink2:      #4a3f2f;
+  --ink3:      #9a8f7f;
+  --accent:    #c8402a;
+  --border:    #d8cfc0;
+  --gold:      #c49a2a;
+  --gold-l:    #fdf6e3;
+  --teal:      #2a6b7c;
+  --teal-l:    #e3f2f5;
+}
+
+html, body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--parchment);
+  color: var(--ink);
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── BARRE DE FILTRES ───────────────────── */
+.toolbar {
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  padding: 8px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.toolbar input, .toolbar select {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--parchment);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 10px;
+  outline: none;
+  transition: border-color .12s;
+}
+.toolbar input    { min-width: 160px; flex: 1; }
+.toolbar select   { padding-right: 22px; appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239a8f7f' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 6px center; }
+.toolbar input:focus, .toolbar select:focus { border-color: var(--accent); }
+.count {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--ink3);
+  white-space: nowrap;
+  margin-left: auto;
+}
+.btn-reset {
+  font-family: 'DM Sans', sans-serif; font-size: 10px;
+  background: transparent; border: 1px solid var(--border);
+  color: var(--ink3); padding: 5px 10px; border-radius: 5px;
+  cursor: pointer; transition: all .12s; white-space: nowrap;
+}
+.btn-reset:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── GRILLE ─────────────────────────────── */
+.grid-wrap {
+  height: calc(100vh - 50px);
+  overflow-y: auto;
+  padding: 12px;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+/* ── CARTE ──────────────────────────────── */
+.card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform .15s, box-shadow .15s;
+  animation: fadeIn .25s ease both;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(26,18,8,.1);
+}
+
+.card-stripe { height: 3px; flex-shrink: 0; }
+.s1 { background: #c8402a; } .s2 { background: #2a6b7c; }
+.s3 { background: #4a7a5a; } .s4 { background: #c49a2a; }
+.s5 { background: #7a4a8a; } .s6 { background: #3a6a9a; }
+.s7 { background: #2a8a6a; } .s8 { background: #8a4a2a; }
+
+.card-body { padding: 12px 14px; flex: 1; display: flex; flex-direction: column; gap: 8px; }
+
+.card-top {
+  display: flex; align-items: flex-start;
+  justify-content: space-between; gap: 6px;
+}
+.card-volet {
+  font-family: 'DM Mono', monospace; font-size: 8px; font-weight: 500;
+  color: var(--ink3); text-transform: uppercase; letter-spacing: .08em;
+  background: var(--parchment); padding: 2px 6px; border-radius: 3px;
+  white-space: nowrap; flex-shrink: 0;
+}
+.card-gaia {
+  font-family: 'DM Mono', monospace; font-size: 8px; color: var(--ink3);
+}
+
+.card-title {
+  font-family: 'Fraunces', serif; font-size: 13px; font-weight: 500;
+  color: var(--ink); line-height: 1.4; letter-spacing: -.01em;
+}
+
+.card-objectif {
+  font-size: 10.5px; color: var(--ink2); line-height: 1.6;
+  display: -webkit-box; -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.card-footer {
+  border-top: 1px solid var(--parchment);
+  padding-top: 8px;
+  display: flex; flex-wrap: wrap; gap: 4px;
+  margin-top: auto;
+}
+.tag {
+  font-size: 9px; font-weight: 500;
+  padding: 2px 7px; border-radius: 3px; letter-spacing: .02em;
+}
+.tag-axe     { background: #fdecea; color: #c8402a; }
+.tag-struct  { background: var(--teal-l); color: var(--teal); }
+.tag-periode { background: var(--gold-l); color: var(--gold); }
+.tag-contact { background: var(--parchment); color: var(--ink2);
+               font-family: 'DM Mono', monospace; font-size: 8px; }
+
+/* ── ÉTATS ──────────────────────────────── */
+.empty {
+  grid-column: 1/-1; text-align: center; padding: 60px 20px; color: var(--ink3);
+}
+.empty p { font-family: 'Fraunces', serif; font-size: 18px; font-weight: 300; margin-bottom: 6px; }
+.empty span { font-size: 11px; font-family: 'DM Mono', monospace; }
+
+#loader {
+  position: fixed; inset: 0; background: rgba(245,240,232,.9);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px; z-index: 500;
+}
+#loader.hidden { display: none; }
+.spinner {
+  width: 24px; height: 24px; border: 2px solid var(--border);
+  border-top-color: var(--accent); border-radius: 50%;
+  animation: spin .65s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#loader p { font-family: 'Fraunces', serif; font-size: 13px; color: var(--ink3); font-style: italic; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <input type="text" id="f-search" placeholder="🔍 Rechercher titre, objectif…" oninput="applyFilters()">
+  <select id="f-axe"    onchange="applyFilters()"><option value="">Tous les axes</option></select>
+  <select id="f-volet"  onchange="applyFilters()"><option value="">Tous les volets</option></select>
+  <select id="f-struct" onchange="applyFilters()"><option value="">Toutes les structures</option></select>
+  <select id="f-modal"  onchange="applyFilters()"><option value="">Toutes les modalités</option></select>
+  <button class="btn-reset" onclick="resetFilters()">✕</button>
+  <span class="count" id="count">–</span>
+</div>
+
+<div class="grid-wrap">
+  <div class="grid" id="grid"></div>
+</div>
+
+<div id="loader"><div class="spinner"></div><p>Chargement…</p></div>
+
+<script>
+// ── Données ──────────────────────────────────────────────────────────────
+let ALL = [], FILTERED = [];
+let VOLET_MAP = {}, AXE_MAP = {}, STRUCT_MAP = {}, MODAL_MAP = {}, CONT_MAP = {};
+
+const AXE_STRIPE = {1:'s1',2:'s2',3:'s3',4:'s4',5:'s5',6:'s6',7:'s7',8:'s8'};
+const ROMAN = {I:1,II:2,III:3,IV:4,V:5,VI:6,VII:7,VIII:8};
+
+function axeNum(lib) {
+  const m = (lib||'').match(/Axe\s+(VIII?|VII?|VI?|IV?|I{1,3})/);
+  return m ? (ROMAN[m[1]] || 0) : 0;
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function resolveList(ids, map) {
+  if (!ids) return [];
+  const arr = Array.isArray(ids) ? ids : [ids];
+  return arr.map(i => map[i]).filter(Boolean);
+}
+
+// ── Init Grist ────────────────────────────────────────────────────────────
+grist.ready({ requiredAccess: 'read table', columns: [] });
+
+// Recevoir toutes les lignes de la table liée au widget
+grist.onRecords(async (records, mappings) => {
+  showLoader(true);
+  try {
+    // Charger les tables de référence via l'API doc
+    const [volets, axes, structs, modals, contacts] = await Promise.all([
+      grist.docApi.fetchTable('Volets'),
+      grist.docApi.fetchTable('Axes'),
+      grist.docApi.fetchTable('Structures'),
+      grist.docApi.fetchTable('Modalites'),
+      grist.docApi.fetchTable('Contacts'),
+    ]);
+
+    const toRows = t => t.id.map((id,i) => {
+      const row = {id};
+      Object.keys(t).forEach(k => { if(k!=='id') row[k]=t[k][i]; });
+      return row;
+    });
+
+    VOLET_MAP  = Object.fromEntries(toRows(volets).map(r  => [r.id, r.libelle]));
+    AXE_MAP    = Object.fromEntries(toRows(axes).map(r    => [r.id, r.libelle]));
+    STRUCT_MAP = Object.fromEntries(toRows(structs).map(r => [r.id, r.code]));
+    MODAL_MAP  = Object.fromEntries(toRows(modals).map(r  => [r.id, r.libelle]));
+    CONT_MAP   = Object.fromEntries(toRows(contacts).map(r=> [r.id, r.nom_prenom]));
+
+    ALL = records.map(r => ({ id: r.id, ...r }));
+    buildFilters(toRows(axes), toRows(volets), toRows(structs), toRows(modals));
+    applyFilters();
+  } catch(e) {
+    console.error(e);
+  } finally {
+    showLoader(false);
+  }
+});
+
+// ── Filtres ────────────────────────────────────────────────────────────────
+function buildFilters(axes, volets, structs, modals) {
+  fillSel('f-axe',    axes,    'libelle');
+  fillSel('f-volet',  volets,  'libelle');
+  fillSel('f-struct', structs, 'code');
+  fillSel('f-modal',  modals,  'libelle');
+}
+
+function fillSel(id, items, field) {
+  const sel = document.getElementById(id);
+  const cur = sel.value;
+  // Garder l'option vide, supprimer les suivantes
+  while (sel.options.length > 1) sel.remove(1);
+  items.slice().sort((a,b)=>(a[field]||'').localeCompare(b[field]||'')).forEach(item => {
+    const o = document.createElement('option');
+    o.value = item.id; o.textContent = item[field]||'';
+    sel.appendChild(o);
+  });
+  sel.value = cur;
+}
+
+function applyFilters() {
+  const axe    = document.getElementById('f-axe').value;
+  const volet  = document.getElementById('f-volet').value;
+  const struct = document.getElementById('f-struct').value;
+  const modal  = document.getElementById('f-modal').value;
+  const search = document.getElementById('f-search').value.toLowerCase();
+
+  FILTERED = ALL.filter(a => {
+    if (axe   && String(a.id_axe)      !== axe)   return false;
+    if (volet && String(a.id_volet)    !== volet)  return false;
+    if (modal && String(a.id_modalite) !== modal)  return false;
+    if (struct) {
+      const ids = Array.isArray(a.id_structure) ? a.id_structure : [a.id_structure];
+      if (!ids.map(String).includes(String(struct))) return false;
+    }
+    if (search && !(a.titre||'').toLowerCase().includes(search) &&
+                  !(a.objectif||'').toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  document.getElementById('count').textContent =
+    `${FILTERED.length} action${FILTERED.length>1?'s':''}`;
+  render();
+}
+
+function resetFilters() {
+  ['f-axe','f-volet','f-struct','f-modal'].forEach(id =>
+    document.getElementById(id).value = '');
+  document.getElementById('f-search').value = '';
+  applyFilters();
+}
+
+// ── Rendu ──────────────────────────────────────────────────────────────────
+function render() {
+  const grid = document.getElementById('grid');
+  if (!FILTERED.length) {
+    grid.innerHTML = '<div class="empty"><p>Aucune action</p><span>Modifiez les filtres</span></div>';
+    return;
+  }
+  const html = FILTERED.map((a, i) => {
+    const axeLib  = AXE_MAP[a.id_axe]   || '';
+    const voletLib= VOLET_MAP[a.id_volet]|| '';
+    const num     = axeNum(axeLib);
+    const stripe  = AXE_STRIPE[num] || '';
+    const structs = resolveList(a.id_structure, STRUCT_MAP);
+    const contacts= resolveList(a.id_contacts,  CONT_MAP);
+    const objectif= (a.objectif||'').replace(/\\n/g,' ').trim();
+    const delay   = Math.min(i * 20, 400);
+    return `
+    <div class="card" style="animation-delay:${delay}ms">
+      <div class="card-stripe ${stripe}"></div>
+      <div class="card-body">
+        <div class="card-top">
+          <span class="card-volet">${esc(voletLib)}</span>
+          ${a.code_gaia ? `<span class="card-gaia">${esc(a.code_gaia)}</span>` : ''}
+        </div>
+        <div class="card-title">${esc(a.titre||'Sans titre')}</div>
+        ${objectif ? `<div class="card-objectif">${esc(objectif)}</div>` : ''}
+        <div class="card-footer">
+          ${axeLib ? `<span class="tag tag-axe">${esc(axeLib)}</span>` : ''}
+          ${structs.map(s=>`<span class="tag tag-struct">${esc(s)}</span>`).join('')}
+          ${a.periode ? `<span class="tag tag-periode">${esc(a.periode)}</span>` : ''}
+          ${contacts.map(c=>`<span class="tag tag-contact">${esc(c)}</span>`).join('')}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  grid.innerHTML = html;
+}
+
+function showLoader(v) {
+  document.getElementById('loader').classList.toggle('hidden', !v);
+}
+</script>
+</body>
+</html>
