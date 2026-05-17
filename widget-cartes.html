@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF</title>
+<!-- Version v8 : sécurisation écriture Modalité -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -549,6 +550,7 @@ let VOLET_ID_BY_LABEL = {}, AXE_ID_BY_LABEL = {}, STRUCT_ID_BY_LABEL = {}, MODAL
 let ACTION_AXE_OPTIONS = [];
 let VOLET_OPTIONS = [], AXE_OPTIONS = [], STRUCT_OPTIONS = [], MODAL_OPTIONS = [], CONTACT_OPTIONS = [], PUBLIC_OPTIONS = [], DEGRE_OPTIONS = [];
 let ACTION_COL = 'id_action_referentiel';
+let MODAL_COL = 'id_modalite';
 let selectedId = null;
 
 const ROMAN = {I:1,II:2,III:3,IV:4,V:5,VI:6,VII:7,VIII:8};
@@ -709,7 +711,11 @@ function refListLabels(value, map, idByLabel, tableName) {
 
 function makeRef(value, idByLabel, map, tableName) {
   const id = refId(value, idByLabel, map, tableName);
-  return id ? Number(id) : null;
+  if (!id) return null;
+  const n = Number(id);
+  // Format explicite Grist pour une colonne Reference.
+  // Évite que certaines références simples soient écrites comme des entiers bruts non résolus.
+  return tableName ? ['R', tableName, n] : n;
 }
 
 function makeRefList(values, idByLabel, map, tableName) {
@@ -889,6 +895,27 @@ function getActionAxe(action) {
   return '';
 }
 
+function getModalite(action) {
+  if (!action) return '';
+  const keys = [MODAL_COL, 'id_modalite', 'id_modalité', 'id_modalites', 'modalite', 'Modalite', 'Modalité', 'Modalit_', 'Modalite_', 'Modalit__'];
+  for (const k of keys) {
+    if (Object.prototype.hasOwnProperty.call(action, k) && action[k] !== undefined && action[k] !== null && action[k] !== '') return action[k];
+  }
+  return '';
+}
+
+function shouldRepairInvalidRef(currentValue, selectedValue, idByLabel, map, tableName) {
+  // Ne pas réécrire automatiquement une référence saine simplement parce que Grist
+  // l'envoie au widget sous forme de libellé affiché (ex. « Hybride »).
+  // On ne force la réparation que si la valeur reçue porte explicitement la marque
+  // d'une référence invalide. Sinon, modifier les publics peut dégrader Modalité.
+  const text = String(currentValue ?? '').trim();
+  if (!/^#\s*Invalid\s+Ref\s*:/i.test(text) && !/^#\s*INVALID\s+REF\s*:/i.test(text)) return false;
+  const selectedId = refId(selectedValue, idByLabel, map, tableName);
+  const currentId = refId(currentValue, idByLabel, map, tableName);
+  return Boolean(selectedId && currentId && selectedId === currentId);
+}
+
 function detectExistingColumn(records, candidates, fallback) {
   const keys = new Set();
   (records || []).slice(0, 5).forEach(r => Object.keys(r || {}).forEach(k => keys.add(k)));
@@ -977,6 +1004,7 @@ grist.onRecords(async (records) => {
 
     ALL = records.map(r => ({ id: r.id, ...r }));
     ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'], ACTION_COL);
+    MODAL_COL = detectExistingColumn(ALL, ['id_modalite', 'id_modalité', 'id_modalites', 'modalite', 'Modalite', 'Modalité', 'Modalit_', 'Modalite_', 'Modalit__'], MODAL_COL);
 
     buildFilters();
     applyFilters();
@@ -1076,7 +1104,7 @@ function applyFilters() {
   FILTERED = ALL.filter(a => {
     const axeLib    = refLabel(a.id_axe, AXE_MAP, AXE_ID_BY_LABEL, 'Axes');
     const voletLib  = refLabel(a.id_volet, VOLET_MAP, VOLET_ID_BY_LABEL, 'Volets');
-    const modalLib  = refLabel(a.id_modalite, MODAL_MAP, MODAL_ID_BY_LABEL, 'Modalites');
+    const modalLib  = refLabel(getModalite(a), MODAL_MAP, MODAL_ID_BY_LABEL, 'Modalites');
     const structs   = refListLabels(a.id_structure, STRUCT_MAP, STRUCT_ID_BY_LABEL, 'Structures');
 
     if (!matchText(axeLib,   axe))    return false;
@@ -1205,7 +1233,7 @@ function buildModalForm(a) {
 
   const voletOptions   = optionList(VOLET_OPTIONS,   'id_volet',     VOLET_MAP,  VOLET_ID_BY_LABEL,  'Volets');
   const axeOptions     = optionList(AXE_OPTIONS,     'id_axe',       AXE_MAP,    AXE_ID_BY_LABEL,    'Axes');
-  const modalOptions   = optionList(MODAL_OPTIONS,   'id_modalite',  MODAL_MAP,  MODAL_ID_BY_LABEL,  'Modalites');
+  const modalOptions   = optionList(MODAL_OPTIONS,   MODAL_COL,      MODAL_MAP,  MODAL_ID_BY_LABEL,  'Modalites');
   const structOptions  = optionList(STRUCT_OPTIONS,  'id_structure', STRUCT_MAP, STRUCT_ID_BY_LABEL, 'Structures', true);
   const contactOptions = optionList(CONTACT_OPTIONS, 'id_contacts',  CONT_MAP,   CONT_ID_BY_LABEL,   'Contacts', true);
   const publicOptions  = optionList(PUBLIC_OPTIONS,  'id_publics',   PUBLIC_MAP, PUBLIC_ID_BY_LABEL, 'Publics', true);
@@ -1268,7 +1296,7 @@ function buildModalForm(a) {
         <label>Modalité</label>
         <select id="m-modal">
           <option value="">—</option>
-          ${modalOptions.map(o=>`<option value="${esc(o.value)}"${selectedRef(a.id_modalite, o, MODAL_ID_BY_LABEL, MODAL_MAP, 'Modalites')}>${esc(o.label)}</option>`).join('')}
+          ${modalOptions.map(o=>`<option value="${esc(o.value)}"${selectedRef(getModalite(a), o, MODAL_ID_BY_LABEL, MODAL_MAP, 'Modalites')}>${esc(o.label)}</option>`).join('')}
         </select>
       </div>
       <div class="mfield">
@@ -1380,7 +1408,10 @@ async function saveRecord() {
   put('journees_stagiaires', joursRaw === '' ? null : joursVal, 'jours');
   put('id_volet',            makeRef(snap.volet, VOLET_ID_BY_LABEL, VOLET_MAP, 'Volets'), 'volet');
   put('id_axe',              makeRef(snap.axe, AXE_ID_BY_LABEL, AXE_MAP, 'Axes'), 'axe');
-  put('id_modalite',         makeRef(snap.modalite, MODAL_ID_BY_LABEL, MODAL_MAP, 'Modalites'), 'modalite');
+  const modalRef = makeRef(snap.modalite, MODAL_ID_BY_LABEL, MODAL_MAP, 'Modalites');
+  if (CURRENT_MODE === 'create' || changedField('modalite', snap) || shouldRepairInvalidRef(getModalite(CURRENT_ACTION), snap.modalite, MODAL_ID_BY_LABEL, MODAL_MAP, 'Modalites')) {
+    fields[MODAL_COL] = snap.modalite ? modalRef : null;
+  }
   put('id_structure',        makeRefList(snap.structures, STRUCT_ID_BY_LABEL, STRUCT_MAP, 'Structures'), 'structures');
   put('id_contacts',         makeRefList(snap.contacts, CONT_ID_BY_LABEL, CONT_MAP, 'Contacts'), 'contacts');
   put('id_publics',          makeRefList(snap.publics, PUBLIC_ID_BY_LABEL, PUBLIC_MAP, 'Publics'), 'publics');
@@ -1450,7 +1481,7 @@ function render() {
   const html = FILTERED.map((a, i) => {
     const axeLib   = refLabel(a.id_axe, AXE_MAP, AXE_ID_BY_LABEL, 'Axes');
     const voletLib = refLabel(a.id_volet, VOLET_MAP, VOLET_ID_BY_LABEL, 'Volets');
-    const modalLib = refLabel(a.id_modalite, MODAL_MAP, MODAL_ID_BY_LABEL, 'Modalites');
+    const modalLib = refLabel(getModalite(a), MODAL_MAP, MODAL_ID_BY_LABEL, 'Modalites');
     const num      = axeNum(axeLib);
     const band     = BANDS[num] || '';
     const structs  = refListLabels(a.id_structure, STRUCT_MAP, STRUCT_ID_BY_LABEL, 'Structures');
