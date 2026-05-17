@@ -480,6 +480,8 @@ html, body {
 // Important : ce widget ne demande que l'accès « read table » et ne contient aucune action AddRecord/UpdateRecord.
 
 let ALL = [], FILTERED = [];
+let ACTION_AXE_MAP = {};
+let ACTION_AXE_MAP_READY = false;
 let selectedId = null;
 
 const ROMAN = {I:1,II:2,III:3,IV:4,V:5,VI:6,VII:7,VIII:8};
@@ -493,7 +495,7 @@ const FIELD_ALIASES = {
   date_fin: ['date_fin', 'Date_fin', 'Date fin'],
   id_volet: ['id_volet', 'Volet', 'volet'],
   id_axe: ['id_axe', 'Axe', 'axe'],
-  action_axe: ['id_action_referentiel', 'id_action_axe', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_référentiel', 'Action_r_f_rentiel', 'Action (référentiel)'],
+  action_axe: ['action_axe_affichage', 'Action_axe_affichage', 'Action complète', 'Action_complete', 'Action du référentiel', 'id_action_referentiel', 'id_action_axe', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_référentiel', 'Action_r_f_rentiel', 'Action (référentiel)'],
   id_structure: ['id_structure', 'Structure_porteuse', 'Structure porteuse', 'structures', 'Structures'],
   id_modalite: ['id_modalite', 'Modalite', 'Modalité', 'modalite'],
   id_contacts: ['id_contacts', 'Contacts_pilotes', 'Contacts / pilotes', 'contacts_pilotes', 'Contacts'],
@@ -561,6 +563,78 @@ function listText(a, key, cleaner = cleanDisplay) {
 
 function firstText(a, key) {
   return cleanDisplay(get(a, key));
+}
+
+function firstRowText(row, keys) {
+  for (const k of keys) {
+    const v = row && row[k];
+    if (v !== undefined && v !== null && String(v).trim()) return String(v).trim();
+  }
+  return '';
+}
+
+function actionAxeNumeroFromRow(r) {
+  return firstRowText(r, ['N° action', 'N_action', 'N_action_', 'numero', 'Numero', 'num']);
+}
+
+function actionAxeLibelleFromRow(r) {
+  return firstRowText(r, ['libelle', 'Libelle', 'Libellé', 'label', 'Label', 'intitule', 'Intitule', 'Intitulé']);
+}
+
+function actionAxeLabelFromRow(r) {
+  const numero = actionAxeNumeroFromRow(r);
+  const lib = actionAxeLibelleFromRow(r);
+  return [numero, lib].filter(Boolean).join(' - ');
+}
+
+function buildActionAxeMap(rows) {
+  const entries = [];
+  rows.forEach(r => {
+    const label = actionAxeLabelFromRow(r);
+    const id = String(r.id || '').trim();
+    const numero = String(actionAxeNumeroFromRow(r) || '').trim();
+    if (!label) return;
+    if (id) entries.push([id, label]);
+    if (numero && !entries.some(([k]) => k === numero)) entries.push([numero, label]);
+    entries.push([label, label]);
+    entries.push([label.replace(' - ', ' — '), label]);
+  });
+  return Object.fromEntries(entries);
+}
+
+async function loadActionAxeMapIfAllowed() {
+  if (ACTION_AXE_MAP_READY) return;
+  ACTION_AXE_MAP_READY = true;
+  try {
+    // En accès public « read table », cet appel peut être refusé par Grist.
+    // Le widget reste alors strictement en lecture de la table sélectionnée.
+    if (!grist.docApi || !grist.docApi.fetchTable) return;
+    const table = await grist.docApi.fetchTable('Actions_axes');
+    const rows = (table.id || []).map((id, i) => {
+      const row = { id };
+      Object.keys(table).forEach(k => { if (k !== 'id') row[k] = table[k][i]; });
+      return row;
+    });
+    ACTION_AXE_MAP = buildActionAxeMap(rows);
+  } catch(e) {
+    console.warn('Actions_axes non accessible depuis le widget public : affichage de la valeur fournie par Actions_formation.', e);
+  }
+}
+
+function actionAxeDisplayValue(raw) {
+  if (raw === null || raw === undefined || raw === '') return '';
+  if (Array.isArray(raw)) return asList(raw).map(actionAxeDisplayValue).filter(Boolean).join(', ');
+  if (typeof raw === 'object') {
+    const fromObject = actionAxeLabelFromRow(raw);
+    if (fromObject) return fromObject;
+  }
+  const key = cleanDisplay(raw);
+  if (!key) return '';
+  return ACTION_AXE_MAP[key] || key.replace(/\s+[—–]\s+/, ' - ');
+}
+
+function actionAxeText(a) {
+  return actionAxeDisplayValue(get(a, 'action_axe'));
 }
 
 function axeNum(lib) {
@@ -648,11 +722,10 @@ function searchableText(a) {
     firstText(a, 'objectif'),
     firstText(a, 'id_volet'),
     firstText(a, 'id_axe'),
-    firstText(a, 'action_axe'),
+    actionAxeText(a),
     firstText(a, 'id_modalite'),
     ...listText(a, 'id_structure'),
     ...listText(a, 'id_publics'),
-    ...listText(a, 'id_contacts', cleanContactName),
     ...listText(a, 'degre')
   ].join(' ').toLowerCase();
 }
@@ -701,10 +774,9 @@ function openModal(a) {
 
   const publics = listText(a, 'id_publics');
   const structs = listText(a, 'id_structure');
-  const contacts = listText(a, 'id_contacts', cleanContactName);
   const degres = listText(a, 'degre');
   const modalite = firstText(a, 'id_modalite');
-  const actionAxe = firstText(a, 'action_axe');
+  const actionAxe = actionAxeText(a);
   const gaia = firstText(a, 'code_gaia');
   const days = daysText(a);
   const periode = periodeText(a);
@@ -723,7 +795,6 @@ function openModal(a) {
       ${section('Modalité', modalite ? `<div class="detail-tags"><span class="tag tag-modal">${esc(modalite)}</span></div>` : '')}
       ${section('Structure porteuse', tagList(structs, 'tag-struct'))}
       ${section('Publics cibles', tagList(publics, 'tag-public'))}
-      ${section('Contacts / pilotes', tagList(contacts, 'tag-contact'))}
       ${section('Code GAIA', gaia ? `<div class="detail-tags"><span class="tag tag-days">GAIA&nbsp;${esc(gaia)}</span></div>` : '')}
       ${section('Journées stagiaires', days ? `<div class="detail-tags"><span class="tag tag-days">${esc(days)}</span></div>` : '')}
     </div>`;
@@ -741,11 +812,10 @@ function cardHtml(a, i) {
   const objectif = firstText(a, 'objectif').replace(/\n/g, ' ').trim();
   const axeLib = firstText(a, 'id_axe');
   const voletLib = firstText(a, 'id_volet');
-  const actionAxe = firstText(a, 'action_axe');
+  const actionAxe = actionAxeText(a);
   const modalLib = firstText(a, 'id_modalite');
   const structs = listText(a, 'id_structure');
   const publics = listText(a, 'id_publics');
-  const contacts = listText(a, 'id_contacts', cleanContactName);
   const degres = listText(a, 'degre');
   const periode = periodeText(a);
   const gaia = firstText(a, 'code_gaia');
@@ -775,7 +845,6 @@ function cardHtml(a, i) {
           ${periode ? `<div class="meta-row"><span class="meta-label">Période</span><div class="meta-value"><span class="tag tag-periode">${esc(periode)}</span></div></div>` : ''}
           ${modalLib ? `<div class="meta-row"><span class="meta-label">Modalité</span><div class="meta-value"><span class="tag tag-modal">${esc(modalLib)}</span></div></div>` : ''}
           ${publics.length ? `<div class="meta-row"><span class="meta-label">Publics</span><div class="meta-value tags">${publics.map(p => `<span class="tag tag-public">${esc(p)}</span>`).join('')}</div></div>` : ''}
-          ${contacts.length ? `<div class="meta-row"><span class="meta-label">Contact</span><div class="meta-value tags">${contacts.map(c => `<span class="tag tag-contact">${esc(c)}</span>`).join('')}</div></div>` : ''}
           ${days ? `<div class="meta-row"><span class="meta-label">Volume</span><div class="meta-value"><span class="tag tag-days">${esc(days)}</span></div></div>` : ''}
         </div>
       </div>
@@ -797,9 +866,10 @@ function showLoader(v) {
 
 grist.ready({ requiredAccess: 'read table', columns: [] });
 
-grist.onRecords((records) => {
+grist.onRecords(async (records) => {
   showLoader(true);
   try {
+    await loadActionAxeMapIfAllowed();
     ALL = (records || []).map(r => ({ id: r.id, ...r }));
     buildFilters();
     applyFilters();

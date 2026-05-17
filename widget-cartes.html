@@ -617,22 +617,46 @@ function contactValues(action) {
     .filter(Boolean);
 }
 
+function actionAxeNumeroFromRow(r) {
+  return r['N° action'] || r['N_action'] || r.N_action || r.numero || r.Numero || r.num || '';
+}
+
+function actionAxeLibelleFromRow(r) {
+  return firstText(r, ['libelle', 'Libelle', 'Libellé', 'label', 'Label', 'intitule', 'Intitule', 'Intitulé']);
+}
+
 function actionAxeLabelFromRow(r) {
-  const numero = r['N° action'] || r['N_action'] || r.N_action || r.numero || r.Numero || r.num || r.id;
-  const lib = firstText(r, ['libelle', 'Libelle', 'Libellé', 'label', 'Label']);
-  return [numero, lib].filter(Boolean).join(' — ');
+  const numero = actionAxeNumeroFromRow(r);
+  const lib = actionAxeLibelleFromRow(r);
+  return [numero, lib].filter(Boolean).join(' - ');
 }
 
 function actionAxeValueFromRow(r) {
-  // Dans le document PNF, la colonne visible du référentiel est le numéro d'action.
-  // Quand le champ Grist est une référence, ce numéro coïncide généralement avec l'id de ligne.
-  const numero = r['N° action'] || r['N_action'] || r.N_action || r.numero || r.Numero || r.num || r.id;
-  return String(numero || '').trim();
+  // Valeur enregistrée dans Actions_formation : l'id de ligne de la table de référence Actions_axes.
+  // Ne pas utiliser « N° action » comme valeur : ce numéro peut se répéter d'un axe à l'autre.
+  return String(r.id || '').trim();
+}
+
+function buildActionAxeMap(rows) {
+  const entries = [];
+  rows.forEach(r => {
+    const label = actionAxeLabelFromRow(r);
+    const id = String(r.id || '').trim();
+    const numero = String(actionAxeNumeroFromRow(r) || '').trim();
+    if (!label) return;
+    if (id) entries.push([id, label]);
+    // Clé de secours seulement pour les documents où Grist renverrait déjà le numéro affiché.
+    // Elle peut être ambiguë si plusieurs axes ont le même N° action, mais elle évite un affichage vide.
+    if (numero && !entries.some(([k]) => k === numero)) entries.push([numero, label]);
+    entries.push([label, label]);
+    entries.push([label.replace(' - ', ' — '), label]);
+  });
+  return Object.fromEntries(entries);
 }
 
 function actionAxeDisplay(v) {
   const key = String(v||'').trim();
-  return ACTION_AXE_MAP[v] || ACTION_AXE_MAP[key] || key;
+  return ACTION_AXE_MAP[v] || ACTION_AXE_MAP[key] || key.replace(/\s+[—–]\s+/, ' - ');
 }
 
 function getActionAxe(action) {
@@ -691,7 +715,7 @@ grist.onRecords(async (records) => {
 
     VOLET_MAP  = Object.fromEntries(vRows.map(r => [r.id, r.libelle || r.Libelle || r['Libellé'] || '']));
     AXE_MAP    = Object.fromEntries(aRows.map(r => [r.id, r.libelle || r.Libelle || r['Libellé'] || '']));
-    ACTION_AXE_MAP = Object.fromEntries(aaRows.map(r => [actionAxeValueFromRow(r), actionAxeLabelFromRow(r)]).filter(([,v]) => v));
+    ACTION_AXE_MAP = buildActionAxeMap(aaRows);
     ACTION_AXE_OPTIONS = aaRows
       .map(r => ({ value: actionAxeValueFromRow(r), label: actionAxeLabelFromRow(r) }))
       .filter(o => o.value && o.label)
@@ -899,6 +923,10 @@ function buildModalForm(a) {
     return [...new Set(vals.map(v => String(v||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr', {numeric:true}));
   };
   const selected = (cur, v) => String(cur||'').trim() === String(v||'').trim() ? ' selected' : '';
+  const selectedAction = (cur, opt) => {
+    const curText = String(cur||'').trim();
+    return (curText === String(opt.value||'').trim() || actionAxeDisplay(curText) === opt.label) ? ' selected' : '';
+  };
   const checked = (values, v) => values.map(x=>String(x||'').trim()).includes(String(v||'').trim()) ? ' checked' : '';
 
   const voletOptions  = optionValues(window.VOLET_VALUES, 'id_volet');
@@ -909,7 +937,6 @@ function buildModalForm(a) {
     ? window.CONTACT_VALUES
     : uniqList('id_contacts').map(contactValue).filter(Boolean);
   const selectedContacts = contactValues(a);
-  const selectedContact = selectedContacts.length ? selectedContacts[0] : '';
   const selectedPublics = publicValues(a);
   const publicOptions = (window.PUBLIC_VALUES && window.PUBLIC_VALUES.length)
     ? window.PUBLIC_VALUES
@@ -956,7 +983,7 @@ function buildModalForm(a) {
         <label>Action (référentiel)</label>
         <select id="m-action-axe">
           <option value="">—</option>
-          ${ACTION_AXE_OPTIONS.map(o=>`<option value="${esc(o.value)}"${selected(actionVal, o.value)}>${esc(o.label)}</option>`).join('')}
+          ${ACTION_AXE_OPTIONS.map(o=>`<option value="${esc(o.value)}"${selectedAction(actionVal, o)}>${esc(o.label)}</option>`).join('')}
         </select>
       </div>
     </div>
@@ -997,11 +1024,10 @@ function buildModalForm(a) {
       </div>
     </div>
     <div class="mfield full">
-      <label>Contact / pilote</label>
-      <select id="m-contact">
-        <option value="">—</option>
-        ${contactOptions.map(v => `<option value="${esc(v)}"${selected(selectedContact, v)}>${esc(v)}</option>`).join('')}
-      </select>
+      <label>Contact(s) / pilote(s)</label>
+      <div class="mchips" id="m-contacts">
+        ${contactOptions.map(v => `<label class="mchip"><input type="checkbox" value="${esc(v)}"${checked(selectedContacts, v)}><span>${esc(v)}</span></label>`).join('')}
+      </div>
     </div>
     <div class="mfield full">
       <label>Publics cibles</label>
@@ -1022,8 +1048,7 @@ async function saveRecord() {
 
   // Lire les valeurs du formulaire
   const structs  = [...document.querySelectorAll('#m-structs input:checked')].map(c=>c.value);
-  const contactVal = document.getElementById('m-contact').value;
-  const contacts = contactVal ? [contactVal] : [];
+  const contacts = [...document.querySelectorAll('#m-contacts input:checked')].map(c=>c.value);
   const publics  = [...document.querySelectorAll('#m-publics input:checked')].map(c=>c.value);
 
   const degreVal = document.getElementById('m-degre').value;
@@ -1059,7 +1084,8 @@ async function saveRecord() {
     date_debut:          toTs(debutVal),
     date_fin:            toTs(finVal),
   };
-  fields[ACTION_COL] = document.getElementById('m-action-axe').value;
+  const actionAxeRaw = document.getElementById('m-action-axe').value;
+  fields[ACTION_COL] = actionAxeRaw ? (Number.isInteger(Number(actionAxeRaw)) ? Number(actionAxeRaw) : actionAxeRaw) : null;
 
   // Les dates et les valeurs numériques restent à null quand elles sont vides : aucune valeur par défaut n'est imposée.
 
