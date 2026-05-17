@@ -1116,6 +1116,7 @@ function selectCard(id) {
 // ── MODALE ────────────────────────────────────────────────────────────────
 let CURRENT_ACTION = null;
 let CURRENT_MODE = 'edit';
+let INITIAL_FORM = null;
 let REF_LISTS = {};  // volets, axes, structs, modals, contacts, publics
 
 function openCreateModal() {
@@ -1142,6 +1143,7 @@ function openModal(action, mode='edit') {
 
   // Construire le formulaire
   buildModalForm(action);
+  INITIAL_FORM = readFormSnapshot();
 
   document.getElementById('btn-save').textContent = isNew ? 'Inscrire' : 'Enregistrer';
 
@@ -1155,6 +1157,7 @@ function closeModal(e) {
   document.getElementById('overlay').classList.add('hidden');
   CURRENT_ACTION = null;
   CURRENT_MODE = 'edit';
+  INITIAL_FORM = null;
   document.getElementById('btn-save').textContent = 'Enregistrer';
 }
 
@@ -1300,6 +1303,44 @@ function buildModalForm(a) {
     </div>`;
 }
 
+function checkedValues(selector) {
+  return [...document.querySelectorAll(selector + ' input:checked')].map(c => c.value).sort((a,b)=>String(a).localeCompare(String(b), 'fr', {numeric:true}));
+}
+
+function readFormSnapshot() {
+  const byId = id => document.getElementById(id);
+  return {
+    titre:      byId('m-titre')?.value ?? '',
+    objectif:   byId('m-objectif')?.value ?? '',
+    code_gaia:  byId('m-gaia')?.value ?? '',
+    jours:      (byId('m-jours')?.value ?? '').trim().replace(',', '.'),
+    volet:      byId('m-volet')?.value ?? '',
+    axe:        byId('m-axe')?.value ?? '',
+    action:     byId('m-action-axe')?.value ?? '',
+    modalite:   byId('m-modal')?.value ?? '',
+    degre:      byId('m-degre')?.value ?? '',
+    debut:      byId('m-debut')?.value ?? '',
+    fin:        byId('m-fin')?.value ?? '',
+    structures: checkedValues('#m-structs'),
+    contacts:   checkedValues('#m-contacts'),
+    publics:    checkedValues('#m-publics'),
+  };
+}
+
+function sameArray(a, b) {
+  a = [...(a || [])].map(String).sort((x,y)=>x.localeCompare(y, 'fr', {numeric:true}));
+  b = [...(b || [])].map(String).sort((x,y)=>x.localeCompare(y, 'fr', {numeric:true}));
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+function changedField(name, snapshot) {
+  if (CURRENT_MODE === 'create' || !INITIAL_FORM) return true;
+  const a = INITIAL_FORM[name];
+  const b = snapshot[name];
+  if (Array.isArray(a) || Array.isArray(b)) return !sameArray(a, b);
+  return String(a ?? '') !== String(b ?? '');
+}
+
 // ── Enregistrer les modifications dans Grist ──────────────────────────────
 async function saveRecord() {
   if (!CURRENT_ACTION && CURRENT_MODE !== 'create') return;
@@ -1309,16 +1350,9 @@ async function saveRecord() {
   msg.textContent = CURRENT_MODE === 'create' ? 'Inscription…' : 'Enregistrement…';
   msg.className = 'msg-save';
 
-  // Lire les valeurs du formulaire
-  const structs  = [...document.querySelectorAll('#m-structs input:checked')].map(c=>c.value);
-  const contacts = [...document.querySelectorAll('#m-contacts input:checked')].map(c=>c.value);
-  const publics  = [...document.querySelectorAll('#m-publics input:checked')].map(c=>c.value);
+  const snap = readFormSnapshot();
 
-  const degreVal = document.getElementById('m-degre').value;
-  const debutVal = document.getElementById('m-debut').value;
-  const finVal   = document.getElementById('m-fin').value;
-
-  const joursRaw = document.getElementById('m-jours').value.trim().replace(',', '.');
+  const joursRaw = snap.jours;
   let joursVal = null;
   if (joursRaw !== '') {
     joursVal = Number(joursRaw);
@@ -1332,26 +1366,39 @@ async function saveRecord() {
 
   const toTs = v => v ? Math.floor(new Date(v + 'T12:00:00').getTime()/1000) : null;
 
-  const fields = {
-    titre:               document.getElementById('m-titre').value.trim(),
-    objectif:            document.getElementById('m-objectif').value.trim(),
-    code_gaia:           document.getElementById('m-gaia').value.trim(),
-    journees_stagiaires: joursVal,
-    id_volet:            makeRef(document.getElementById('m-volet').value, VOLET_ID_BY_LABEL, VOLET_MAP, 'Volets'),
-    id_axe:              makeRef(document.getElementById('m-axe').value, AXE_ID_BY_LABEL, AXE_MAP, 'Axes'),
-    // Modalité reste enregistrée sous forme de libellé : dans ce document, ce champ n'est pas une ReferenceList.
-    id_modalite:         document.getElementById('m-modal').value,
-    id_structure:        makeRefList(structs, STRUCT_ID_BY_LABEL, STRUCT_MAP, 'Structures'),
-    id_contacts:         makeRefList(contacts, CONT_ID_BY_LABEL, CONT_MAP, 'Contacts'),
-    id_publics:          makeRefList(publics, PUBLIC_ID_BY_LABEL, PUBLIC_MAP, 'Publics'),
-    Degre:               makeRefList(degreVal ? [degreVal] : [], DEGRE_ID_BY_LABEL, DEGRE_MAP, ''),
-    date_debut:          toTs(debutVal),
-    date_fin:            toTs(finVal),
+  // En création, tous les champs sont envoyés.
+  // En édition, seuls les champs effectivement modifiés sont envoyés.
+  // Cela évite de réécrire involontairement des colonnes de référence avec des valeurs d'affichage.
+  const fields = {};
+  const put = (name, value, key=name) => {
+    if (CURRENT_MODE === 'create' || changedField(key, snap)) fields[name] = value;
   };
-  const actionAxeRaw = document.getElementById('m-action-axe').value;
-  fields[ACTION_COL] = makeRef(actionAxeRaw, {}, ACTION_AXE_MAP, 'Actions_axes');
 
-  // Les dates et les valeurs numériques restent à null quand elles sont vides : aucune valeur par défaut n'est imposée.
+  put('titre',               snap.titre.trim(), 'titre');
+  put('objectif',            snap.objectif.trim(), 'objectif');
+  put('code_gaia',           snap.code_gaia.trim(), 'code_gaia');
+  put('journees_stagiaires', joursRaw === '' ? null : joursVal, 'jours');
+  put('id_volet',            makeRef(snap.volet, VOLET_ID_BY_LABEL, VOLET_MAP, 'Volets'), 'volet');
+  put('id_axe',              makeRef(snap.axe, AXE_ID_BY_LABEL, AXE_MAP, 'Axes'), 'axe');
+  put('id_modalite',         makeRef(snap.modalite, MODAL_ID_BY_LABEL, MODAL_MAP, 'Modalites'), 'modalite');
+  put('id_structure',        makeRefList(snap.structures, STRUCT_ID_BY_LABEL, STRUCT_MAP, 'Structures'), 'structures');
+  put('id_contacts',         makeRefList(snap.contacts, CONT_ID_BY_LABEL, CONT_MAP, 'Contacts'), 'contacts');
+  put('id_publics',          makeRefList(snap.publics, PUBLIC_ID_BY_LABEL, PUBLIC_MAP, 'Publics'), 'publics');
+  put('Degre',               makeRefList(snap.degre ? [snap.degre] : [], DEGRE_ID_BY_LABEL, DEGRE_MAP, ''), 'degre');
+  put('date_debut',          toTs(snap.debut), 'debut');
+  put('date_fin',            toTs(snap.fin), 'fin');
+
+  const actionRef = makeRef(snap.action, {}, ACTION_AXE_MAP, 'Actions_axes');
+  if (CURRENT_MODE === 'create' || changedField('action', snap)) fields[ACTION_COL] = actionRef;
+
+  if (CURRENT_MODE !== 'create' && Object.keys(fields).length === 0) {
+    msg.textContent = 'Aucune modification à enregistrer.';
+    msg.className = 'msg-save';
+    btn.disabled = false;
+    return;
+  }
+
+  console.debug('[widget-cartes] Champs envoyés à Grist', fields);
 
   try {
     if (CURRENT_MODE === 'create') {
