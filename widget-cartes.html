@@ -909,6 +909,7 @@ function buildModalForm(a) {
     ? window.CONTACT_VALUES
     : uniqList('id_contacts').map(contactValue).filter(Boolean);
   const selectedContacts = contactValues(a);
+  const selectedContact = selectedContacts.length ? selectedContacts[0] : '';
   const selectedPublics = publicValues(a);
   const publicOptions = (window.PUBLIC_VALUES && window.PUBLIC_VALUES.length)
     ? window.PUBLIC_VALUES
@@ -985,7 +986,7 @@ function buildModalForm(a) {
     <div class="modal-row">
       <div class="mfield">
         <label>Journées stagiaires</label>
-        <input type="number" id="m-jours" step="0.5" value="${a.journees_stagiaires||''}">
+        <input type="number" id="m-jours" min="0.1" step="0.1" inputmode="decimal" value="${a.journees_stagiaires ?? ''}" placeholder="Ex. 12.5">
       </div>
       <div class="mfield"></div>
     </div>
@@ -996,10 +997,11 @@ function buildModalForm(a) {
       </div>
     </div>
     <div class="mfield full">
-      <label>Contact(s) / pilote(s)</label>
-      <div class="mchips" id="m-contacts">
-        ${contactOptions.map(v => `<label class="mchip"><input type="checkbox" value="${esc(v)}"${checked(selectedContacts, v)}><span>${esc(v)}</span></label>`).join('')}
-      </div>
+      <label>Contact / pilote</label>
+      <select id="m-contact">
+        <option value="">—</option>
+        ${contactOptions.map(v => `<option value="${esc(v)}"${selected(selectedContact, v)}>${esc(v)}</option>`).join('')}
+      </select>
     </div>
     <div class="mfield full">
       <label>Publics cibles</label>
@@ -1020,12 +1022,25 @@ async function saveRecord() {
 
   // Lire les valeurs du formulaire
   const structs  = [...document.querySelectorAll('#m-structs input:checked')].map(c=>c.value);
-  const contacts = [...document.querySelectorAll('#m-contacts input:checked')].map(c=>c.value);
+  const contactVal = document.getElementById('m-contact').value;
+  const contacts = contactVal ? [contactVal] : [];
   const publics  = [...document.querySelectorAll('#m-publics input:checked')].map(c=>c.value);
 
   const degreVal = document.getElementById('m-degre').value;
   const debutVal = document.getElementById('m-debut').value;
   const finVal   = document.getElementById('m-fin').value;
+
+  const joursRaw = document.getElementById('m-jours').value.trim().replace(',', '.');
+  let joursVal = null;
+  if (joursRaw !== '') {
+    joursVal = Number(joursRaw);
+    if (!Number.isFinite(joursVal) || joursVal <= 0) {
+      msg.textContent = '✗ Le nombre de journées stagiaires doit être un nombre positif.';
+      msg.className = 'msg-save err';
+      btn.disabled = false;
+      return;
+    }
+  }
 
   const toTs = v => v ? Math.floor(new Date(v + 'T12:00:00').getTime()/1000) : null;
 
@@ -1033,7 +1048,7 @@ async function saveRecord() {
     titre:               document.getElementById('m-titre').value.trim(),
     objectif:            document.getElementById('m-objectif').value.trim(),
     code_gaia:           document.getElementById('m-gaia').value.trim(),
-    journees_stagiaires: parseFloat(document.getElementById('m-jours').value)||null,
+    journees_stagiaires: joursVal,
     id_volet:            document.getElementById('m-volet').value,
     id_axe:              document.getElementById('m-axe').value,
     id_modalite:         document.getElementById('m-modal').value,
@@ -1046,8 +1061,7 @@ async function saveRecord() {
   };
   fields[ACTION_COL] = document.getElementById('m-action-axe').value;
 
-  // Nettoyer uniquement les nulls numériques. Les chaînes vides servent à vider un champ texte/choix.
-  Object.keys(fields).forEach(k => { if(fields[k]===null) delete fields[k]; });
+  // Les dates et les valeurs numériques restent à null quand elles sont vides : aucune valeur par défaut n'est imposée.
 
   try {
     if (CURRENT_MODE === 'create') {
