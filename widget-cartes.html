@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF</title>
-<!-- Version v8 : sécurisation écriture Modalité -->
+<!-- Version v11 : résolution robuste table Degrés accentuée -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -551,6 +551,8 @@ let ACTION_AXE_OPTIONS = [];
 let VOLET_OPTIONS = [], AXE_OPTIONS = [], STRUCT_OPTIONS = [], MODAL_OPTIONS = [], CONTACT_OPTIONS = [], PUBLIC_OPTIONS = [], DEGRE_OPTIONS = [];
 let ACTION_COL = 'id_action_referentiel';
 let MODAL_COL = 'id_modalite';
+let DEGRE_COL = 'Degre';
+let DEGRE_TABLE_ID = 'Degrés';
 let selectedId = null;
 
 const ROMAN = {I:1,II:2,III:3,IV:4,V:5,VI:6,VII:7,VIII:8};
@@ -746,6 +748,43 @@ function firstRowText(row, keys) {
   return '';
 }
 
+function normalizeIdentifier(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9]/g, '')
+    .toLowerCase();
+}
+
+function toRowsGeneric(t) {
+  return (t && t.id || []).map((id, i) => {
+    const row = {id};
+    Object.keys(t || {}).forEach(k => { if (k !== 'id') row[k] = t[k][i]; });
+    return row;
+  });
+}
+
+function firstTextByNormalizedPrefix(row, prefixes) {
+  const wanted = (prefixes || []).map(normalizeIdentifier).filter(Boolean);
+  for (const k of Object.keys(row || {})) {
+    if (k === 'id') continue;
+    const nk = normalizeIdentifier(k);
+    if (!wanted.some(p => nk.startsWith(p))) continue;
+    const v = row[k];
+    if (v !== undefined && v !== null && String(v).trim()) return String(v).trim();
+  }
+  return '';
+}
+
+function firstNonIdCellText(row) {
+  for (const k of Object.keys(row || {})) {
+    if (k === 'id') continue;
+    const v = row[k];
+    if (v !== undefined && v !== null && String(v).trim()) return String(v).trim();
+  }
+  return '';
+}
+
 
 function genericLabelFromRow(r) {
   return firstRowText(r, [
@@ -755,25 +794,80 @@ function genericLabelFromRow(r) {
 }
 
 function degreLabelFromRow(r) {
+  // Cas attendu : table « Degrés », colonne « Degrés ».
+  // On accepte aussi les identifiants techniques Grist sans accent (Degres, Degr_s, etc.).
   return firstRowText(r, [
-    'Degrés', 'degrés', 'Degres', 'degres',
+    'Degrés', 'degrés', 'Degres', 'degres', 'Degr_s', 'degr_s',
     'Libellé', 'Libelle', 'Libell_', 'libell_', 'libelle', 'label', 'Label',
     'Degré', 'Degre', 'degre', 'degré', 'Nom', 'nom', 'name', 'Name'
-  ]);
+  ]) || firstTextByNormalizedPrefix(r, ['degr']) || firstNonIdCellText(r);
+}
+
+function expandedTableNames(names) {
+  const out = new Set();
+  (names || []).forEach(name => {
+    const s = String(name || '').trim();
+    if (!s) return;
+    out.add(s);
+    out.add(s.normalize('NFC'));
+    out.add(s.normalize('NFD'));
+    out.add(s.normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+    out.add(s.normalize('NFD').replace(/[\u0300-\u036f]/g, '_'));
+    out.add(s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9_]/g, '_'));
+  });
+  return [...out].filter(Boolean);
+}
+
+async function discoverTableId(names, normalizedPrefix) {
+  try {
+    const meta = await grist.docApi.fetchTable('_grist_Tables');
+    const rows = toRowsGeneric(meta);
+    const targetNorms = expandedTableNames(names).map(normalizeIdentifier);
+    const candidates = rows.map(r => String(r.tableId || r.table_id || r.TableId || r.TableID || r.name || '').trim()).filter(Boolean);
+
+    for (const id of candidates) {
+      if (targetNorms.includes(normalizeIdentifier(id))) return id;
+    }
+    const prefix = normalizeIdentifier(normalizedPrefix || '');
+    if (prefix) {
+      for (const id of candidates) {
+        if (normalizeIdentifier(id).startsWith(prefix)) return id;
+      }
+    }
+  } catch(e) {
+    console.warn('[widget-cartes] Impossible de lire _grist_Tables pour découvrir la table de référence.', e);
+  }
+  return '';
 }
 
 async function fetchFirstExistingTable(names, emptyTable = {id:[]}) {
+  const result = await fetchFirstExistingTableWithId(names, emptyTable);
+  return result.table;
+}
+
+async function fetchFirstExistingTableWithId(names, emptyTable = {id:[]}, normalizedPrefix = '') {
   let lastError = null;
-  for (const name of names) {
+  for (const name of expandedTableNames(names)) {
     try {
       const table = await grist.docApi.fetchTable(name);
-      if (table && Array.isArray(table.id)) return table;
+      if (table && Array.isArray(table.id)) return {table, tableId: name};
     } catch(e) {
       lastError = e;
     }
   }
+
+  const discovered = await discoverTableId(names, normalizedPrefix || names?.[0]);
+  if (discovered) {
+    try {
+      const table = await grist.docApi.fetchTable(discovered);
+      if (table && Array.isArray(table.id)) return {table, tableId: discovered};
+    } catch(e) {
+      lastError = e;
+    }
+  }
+
   console.warn('[widget-cartes] Table introuvable parmi : ' + names.join(', '), lastError);
-  return emptyTable;
+  return {table: emptyTable, tableId: names && names[0] || ''};
 }
 
 function actionAxeNumeroFromRow(r) {
@@ -934,6 +1028,15 @@ function getModalite(action) {
   return '';
 }
 
+function getDegre(action) {
+  if (!action) return '';
+  const keys = [DEGRE_COL, 'Degre', 'Degré', 'Degr_', 'Degr__', 'id_degre', 'id_degré', 'id_degres', 'id_degrés'];
+  for (const k of keys) {
+    if (Object.prototype.hasOwnProperty.call(action, k) && action[k] !== undefined && action[k] !== null && action[k] !== '') return action[k];
+  }
+  return '';
+}
+
 function shouldRepairInvalidRef(currentValue, selectedValue, idByLabel, map, tableName) {
   // Ne pas réécrire automatiquement une référence saine simplement parce que Grist
   // l'envoie au widget sous forme de libellé affiché (ex. « Hybride »).
@@ -973,7 +1076,7 @@ grist.onRecords(async (records) => {
       grist.docApi.fetchTable('Modalites'),
       grist.docApi.fetchTable('Contacts'),
       grist.docApi.fetchTable('Publics').catch(() => ({id:[], libelle:[], Libelle:[], 'Libellé':[], Libell_:[]})),
-      fetchFirstExistingTable(['Degrés', 'Degres', 'Degré', 'Degre'], {id:[], 'Degrés':[], degres:[], Degres:[], libelle:[], Libelle:[], 'Libellé':[], Libell_:[]}),
+      fetchFirstExistingTableWithId(['Degrés', 'Degres', 'Degr_s', 'Degré', 'Degre'], {id:[], 'Degrés':[], 'Degr_s':[], degres:[], Degres:[], libelle:[], Libelle:[], 'Libellé':[], Libell_:[]}, 'degr'),
     ]);
 
     const toRows = t => (t.id||[]).map((id,i) => {
@@ -989,7 +1092,9 @@ grist.onRecords(async (records) => {
     const mRows = toRows(modals);
     const cRows = toRows(contacts);
     const pRows = toRows(publics);
-    const dRows = toRows(degres);
+    const degresTable = degres && degres.table ? degres.table : degres;
+    DEGRE_TABLE_ID = (degres && degres.tableId) ? degres.tableId : 'Degrés';
+    const dRows = toRows(degresTable);
 
     const simpleLabel = genericLabelFromRow;
     const degreLabel = degreLabelFromRow;
@@ -1031,11 +1136,12 @@ grist.onRecords(async (records) => {
     window.CONTACT_VALUES = CONTACT_OPTIONS.map(o => o.label);
     window.PUBLIC_VALUES = PUBLIC_OPTIONS.map(o => o.label);
     window.DEGRE_VALUES = DEGRE_OPTIONS.map(o => o.label);
-    if (!DEGRE_OPTIONS.length) console.warn('[widget-cartes] Aucune valeur chargée depuis la table Degrés. Vérifier que la colonne de valeurs s’appelle bien Degrés.');
+    if (!DEGRE_OPTIONS.length) console.warn('[widget-cartes] Aucune valeur chargée depuis la table Degrés. Table détectée :', DEGRE_TABLE_ID, 'Vérifier que la colonne de valeurs s’appelle bien Degrés.');
 
     ALL = records.map(r => ({ id: r.id, ...r }));
     ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'], ACTION_COL);
     MODAL_COL = detectExistingColumn(ALL, ['id_modalite', 'id_modalité', 'id_modalites', 'modalite', 'Modalite', 'Modalité', 'Modalit_', 'Modalite_', 'Modalit__'], MODAL_COL);
+    DEGRE_COL = detectExistingColumn(ALL, ['Degre', 'Degré', 'Degr_', 'Degr__', 'id_degre', 'id_degré', 'id_degres', 'id_degrés'], DEGRE_COL);
 
     buildFilters();
     applyFilters();
@@ -1268,7 +1374,7 @@ function buildModalForm(a) {
   const structOptions  = optionList(STRUCT_OPTIONS,  'id_structure', STRUCT_MAP, STRUCT_ID_BY_LABEL, 'Structures', true);
   const contactOptions = optionList(CONTACT_OPTIONS, 'id_contacts',  CONT_MAP,   CONT_ID_BY_LABEL,   'Contacts', true);
   const publicOptions  = optionList(PUBLIC_OPTIONS,  'id_publics',   PUBLIC_MAP, PUBLIC_ID_BY_LABEL, 'Publics', true);
-  const degreOptions   = optionList(DEGRE_OPTIONS,   'Degre',        DEGRE_MAP, DEGRE_ID_BY_LABEL, 'Degrés', true);
+  const degreOptions   = optionList(DEGRE_OPTIONS,   DEGRE_COL,      DEGRE_MAP, DEGRE_ID_BY_LABEL, DEGRE_TABLE_ID, true);
   const actionVal = getActionAxe(a);
 
   body.innerHTML = `
@@ -1285,7 +1391,7 @@ function buildModalForm(a) {
         <label>Degré</label>
         <select id="m-degre">
           <option value="">—</option>
-          ${degreOptions.map(o=>`<option value="${esc(o.value)}"${checkedRefList(a.Degre, o, DEGRE_ID_BY_LABEL, DEGRE_MAP, 'Degrés').replace(' checked',' selected')}>${esc(o.label)}</option>`).join('')}
+          ${degreOptions.map(o=>`<option value="${esc(o.value)}"${checkedRefList(getDegre(a), o, DEGRE_ID_BY_LABEL, DEGRE_MAP, DEGRE_TABLE_ID).replace(' checked',' selected')}>${esc(o.label)}</option>`).join('')}
         </select>
       </div>
       <div class="mfield">
@@ -1446,7 +1552,7 @@ async function saveRecord() {
   put('id_structure',        makeRefList(snap.structures, STRUCT_ID_BY_LABEL, STRUCT_MAP, 'Structures'), 'structures');
   put('id_contacts',         makeRefList(snap.contacts, CONT_ID_BY_LABEL, CONT_MAP, 'Contacts'), 'contacts');
   put('id_publics',          makeRefList(snap.publics, PUBLIC_ID_BY_LABEL, PUBLIC_MAP, 'Publics'), 'publics');
-  put('Degre',               makeRefList(snap.degre ? [snap.degre] : [], DEGRE_ID_BY_LABEL, DEGRE_MAP, 'Degrés'), 'degre');
+  put(DEGRE_COL,             makeRefList(snap.degre ? [snap.degre] : [], DEGRE_ID_BY_LABEL, DEGRE_MAP, DEGRE_TABLE_ID), 'degre');
   put('date_debut',          toTs(snap.debut), 'debut');
   put('date_fin',            toTs(snap.fin), 'fin');
 
@@ -1522,7 +1628,7 @@ function render() {
     const objectif = (a.objectif||'').replace(/\n/g,' ').trim();
     const periode  = a.periode || '';
     const gaia     = a.code_gaia || '';
-    const degre    = refListLabels(a.Degre, DEGRE_MAP, DEGRE_ID_BY_LABEL, 'Degrés').join(', ');
+    const degre    = refListLabels(getDegre(a), DEGRE_MAP, DEGRE_ID_BY_LABEL, DEGRE_TABLE_ID).join(', ');
     const delay    = Math.min(i * 18, 400);
     const isSel    = a.id === selectedId;
 
