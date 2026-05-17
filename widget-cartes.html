@@ -617,12 +617,20 @@ function contactValues(action) {
     .filter(Boolean);
 }
 
+function firstRowText(row, keys) {
+  for (const k of keys) {
+    const v = row && row[k];
+    if (v !== undefined && v !== null && String(v).trim()) return String(v).trim();
+  }
+  return '';
+}
+
 function actionAxeNumeroFromRow(r) {
-  return r['N° action'] || r['N_action'] || r.N_action || r.numero || r.Numero || r.num || '';
+  return firstRowText(r, ['N° action', 'N_action', 'N_action_', 'numero', 'Numero', 'num']);
 }
 
 function actionAxeLibelleFromRow(r) {
-  return firstText(r, ['libelle', 'Libelle', 'Libellé', 'label', 'Label', 'intitule', 'Intitule', 'Intitulé']);
+  return firstRowText(r, ['libelle', 'Libelle', 'Libellé', 'label', 'Label', 'intitule', 'Intitule', 'Intitulé']);
 }
 
 function actionAxeLabelFromRow(r) {
@@ -637,26 +645,124 @@ function actionAxeValueFromRow(r) {
   return String(r.id || '').trim();
 }
 
+function refRowIdFromValue(raw, expectedTable) {
+  if (raw === null || raw === undefined || raw === '') return '';
+
+  if (Array.isArray(raw)) {
+    const arr = raw[0] === 'L' ? raw.slice(1) : raw;
+    const tableSeen = arr.some(v => String(v || '').trim() === expectedTable);
+    const nums = arr
+      .map(v => (typeof v === 'number' && Number.isFinite(v)) ? String(v) : String(v || '').trim())
+      .filter(v => /^\d+$/.test(v));
+    if (tableSeen && nums.length) return nums[nums.length - 1];
+    if (arr.length === 1 && nums.length === 1) return nums[0];
+    return '';
+  }
+
+  if (typeof raw === 'object') {
+    const table = raw.tableId || raw.table || raw.refTableId || raw.table_id || raw._tableId || raw.type;
+    const row = raw.rowId ?? raw.row_id ?? raw.recordId ?? raw.record_id ?? raw.ref ?? raw.value ?? raw.id;
+    if ((!table || String(table) === expectedTable) && row !== undefined && row !== null && /^\d+$/.test(String(row))) {
+      return String(row);
+    }
+    for (const k of ['ref', 'value', 'rawValue', 'cellValue']) {
+      if (raw[k] !== raw && raw[k] !== undefined) {
+        const nested = refRowIdFromValue(raw[k], expectedTable);
+        if (nested) return nested;
+      }
+    }
+    return '';
+  }
+
+  const s = String(raw).trim();
+  const escaped = expectedTable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const patterns = [
+    new RegExp('^' + escaped + '\\[(\\d+)\\]$'),
+    new RegExp('^' + escaped + '\\s*[:;,]\\s*(\\d+)$'),
+    new RegExp('(?:^|[,;])\\s*' + escaped + '\\s*[,;]\\s*(\\d+)(?:[,;]|$)'),
+    /rowId["']?\s*[:=]\s*(\d+)/i,
+    /recordId["']?\s*[:=]\s*(\d+)/i
+  ];
+  for (const p of patterns) {
+    const m = s.match(p);
+    if (m) return m[1];
+  }
+  return '';
+}
+
+function cleanActionAxeKey(raw) {
+  if (raw === null || raw === undefined) return '';
+  if (Array.isArray(raw)) {
+    const refId = refRowIdFromValue(raw, 'Actions_axes');
+    if (refId) return refId;
+    return asList(raw).map(cleanActionAxeKey).filter(Boolean).join(', ');
+  }
+  if (typeof raw === 'object') {
+    const refId = refRowIdFromValue(raw, 'Actions_axes');
+    if (refId) return refId;
+    const fromObject = actionAxeLabelFromRow(raw);
+    if (fromObject) return fromObject;
+    return String(raw.display || raw.label || raw.name || '').trim();
+  }
+  return String(raw || '').trim();
+}
+
 function buildActionAxeMap(rows) {
   const entries = [];
+  const add = (k, label) => {
+    const key = String(k || '').trim();
+    if (key && label) entries.push([key, label]);
+  };
+
   rows.forEach(r => {
     const label = actionAxeLabelFromRow(r);
     const id = String(r.id || '').trim();
     const numero = String(actionAxeNumeroFromRow(r) || '').trim();
     if (!label) return;
-    if (id) entries.push([id, label]);
-    // Clé de secours seulement pour les documents où Grist renverrait déjà le numéro affiché.
-    // Elle peut être ambiguë si plusieurs axes ont le même N° action, mais elle évite un affichage vide.
-    if (numero && !entries.some(([k]) => k === numero)) entries.push([numero, label]);
-    entries.push([label, label]);
-    entries.push([label.replace(' - ', ' — '), label]);
+
+    if (id) {
+      add(id, label);
+      add(`Actions_axes[${id}]`, label);
+      add(`R,Actions_axes,${id}`, label);
+      add(`Actions_axes:${id}`, label);
+    }
+
+    // Clés de secours seulement pour les documents où Grist renverrait le numéro affiché.
+    // Elles peuvent être ambiguës si plusieurs axes ont le même N° action, mais évitent un affichage vide.
+    if (numero) {
+      add(numero, label);
+      add(`Actions_axes[${numero}]`, label);
+    }
+
+    add(label, label);
+    add(label.replace(' - ', ' — '), label);
   });
+
   return Object.fromEntries(entries);
 }
 
 function actionAxeDisplay(v) {
-  const key = String(v||'').trim();
-  return ACTION_AXE_MAP[v] || ACTION_AXE_MAP[key] || key.replace(/\s+[—–]\s+/, ' - ');
+  if (v === null || v === undefined || v === '') return '';
+  const refId = refRowIdFromValue(v, 'Actions_axes');
+  if (refId && ACTION_AXE_MAP[refId]) return ACTION_AXE_MAP[refId];
+
+  if (typeof v === 'object' && !Array.isArray(v)) {
+    const fromObject = actionAxeLabelFromRow(v);
+    if (fromObject) return fromObject;
+  }
+
+  if (Array.isArray(v)) {
+    const labelFromRef = refRowIdFromValue(v, 'Actions_axes');
+    if (labelFromRef && ACTION_AXE_MAP[labelFromRef]) return ACTION_AXE_MAP[labelFromRef];
+    return asList(v).map(actionAxeDisplay).filter(s => s && s !== 'R' && s !== 'Actions_axes').join(', ');
+  }
+
+  const key = cleanActionAxeKey(v);
+  return ACTION_AXE_MAP[key] || key.replace(/\s+[—–]\s+/, ' - ');
+}
+
+function actionAxeRefId(v) {
+  return refRowIdFromValue(v, 'Actions_axes') || cleanActionAxeKey(v);
 }
 
 function getActionAxe(action) {
@@ -924,8 +1030,9 @@ function buildModalForm(a) {
   };
   const selected = (cur, v) => String(cur||'').trim() === String(v||'').trim() ? ' selected' : '';
   const selectedAction = (cur, opt) => {
-    const curText = String(cur||'').trim();
-    return (curText === String(opt.value||'').trim() || actionAxeDisplay(curText) === opt.label) ? ' selected' : '';
+    const refId = actionAxeRefId(cur);
+    const curText = cleanActionAxeKey(cur);
+    return (refId === String(opt.value||'').trim() || curText === String(opt.value||'').trim() || actionAxeDisplay(cur) === opt.label) ? ' selected' : '';
   };
   const checked = (values, v) => values.map(x=>String(x||'').trim()).includes(String(v||'').trim()) ? ' checked' : '';
 
@@ -941,7 +1048,7 @@ function buildModalForm(a) {
   const publicOptions = (window.PUBLIC_VALUES && window.PUBLIC_VALUES.length)
     ? window.PUBLIC_VALUES
     : uniqList('id_publics').map(publicValue).filter(Boolean);
-  const actionVal = String(getActionAxe(a)||'').trim();
+  const actionVal = getActionAxe(a);
 
   body.innerHTML = `
     <div class="mfield full">

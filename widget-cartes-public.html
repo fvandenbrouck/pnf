@@ -587,17 +587,79 @@ function actionAxeLabelFromRow(r) {
   return [numero, lib].filter(Boolean).join(' - ');
 }
 
+function refRowIdFromValue(raw, expectedTable) {
+  if (raw === null || raw === undefined || raw === '') return '';
+
+  if (Array.isArray(raw)) {
+    const arr = raw[0] === 'L' ? raw.slice(1) : raw;
+    const tableSeen = arr.some(v => String(v || '').trim() === expectedTable);
+    const nums = arr
+      .map(v => (typeof v === 'number' && Number.isFinite(v)) ? String(v) : String(v || '').trim())
+      .filter(v => /^\d+$/.test(v));
+    if (tableSeen && nums.length) return nums[nums.length - 1];
+    if (arr.length === 1 && nums.length === 1) return nums[0];
+    return '';
+  }
+
+  if (typeof raw === 'object') {
+    const table = raw.tableId || raw.table || raw.refTableId || raw.table_id || raw._tableId || raw.type;
+    const row = raw.rowId ?? raw.row_id ?? raw.recordId ?? raw.record_id ?? raw.ref ?? raw.value ?? raw.id;
+    if ((!table || String(table) === expectedTable) && row !== undefined && row !== null && /^\d+$/.test(String(row))) {
+      return String(row);
+    }
+    for (const k of ['ref', 'value', 'rawValue', 'cellValue']) {
+      if (raw[k] !== raw && raw[k] !== undefined) {
+        const nested = refRowIdFromValue(raw[k], expectedTable);
+        if (nested) return nested;
+      }
+    }
+    return '';
+  }
+
+  const s = String(raw).trim();
+  const escaped = expectedTable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const patterns = [
+    new RegExp('^' + escaped + '\\[(\\d+)\\]$'),
+    new RegExp('^' + escaped + '\\s*[:;,]\\s*(\\d+)$'),
+    new RegExp('(?:^|[,;])\\s*' + escaped + '\\s*[,;]\\s*(\\d+)(?:[,;]|$)'),
+    /rowId["']?\s*[:=]\s*(\d+)/i,
+    /recordId["']?\s*[:=]\s*(\d+)/i
+  ];
+  for (const p of patterns) {
+    const m = s.match(p);
+    if (m) return m[1];
+  }
+  return '';
+}
+
 function buildActionAxeMap(rows) {
   const entries = [];
+  const add = (k, label) => {
+    const key = String(k || '').trim();
+    if (key && label) entries.push([key, label]);
+  };
+
   rows.forEach(r => {
     const label = actionAxeLabelFromRow(r);
     const id = String(r.id || '').trim();
     const numero = String(actionAxeNumeroFromRow(r) || '').trim();
     if (!label) return;
-    if (id) entries.push([id, label]);
-    if (numero && !entries.some(([k]) => k === numero)) entries.push([numero, label]);
-    entries.push([label, label]);
-    entries.push([label.replace(' - ', ' — '), label]);
+
+    if (id) {
+      add(id, label);
+      add(`Actions_axes[${id}]`, label);
+      add(`R,Actions_axes,${id}`, label);
+      add(`Actions_axes:${id}`, label);
+    }
+
+    // Clés de secours seulement pour les documents où Grist renverrait le numéro affiché.
+    if (numero) {
+      add(numero, label);
+      add(`Actions_axes[${numero}]`, label);
+    }
+
+    add(label, label);
+    add(label.replace(' - ', ' — '), label);
   });
   return Object.fromEntries(entries);
 }
@@ -606,8 +668,7 @@ async function loadActionAxeMapIfAllowed() {
   if (ACTION_AXE_MAP_READY) return;
   ACTION_AXE_MAP_READY = true;
   try {
-    // En accès public « read table », cet appel peut être refusé par Grist.
-    // Le widget reste alors strictement en lecture de la table sélectionnée.
+    // La résolution « N° action - intitulé » nécessite la lecture de la table de référence Actions_axes.
     if (!grist.docApi || !grist.docApi.fetchTable) return;
     const table = await grist.docApi.fetchTable('Actions_axes');
     const rows = (table.id || []).map((id, i) => {
@@ -617,19 +678,49 @@ async function loadActionAxeMapIfAllowed() {
     });
     ACTION_AXE_MAP = buildActionAxeMap(rows);
   } catch(e) {
-    console.warn('Actions_axes non accessible depuis le widget public : affichage de la valeur fournie par Actions_formation.', e);
+    console.warn('Actions_axes non accessible : créez une colonne formule action_axe_affichage ou autorisez le widget à lire le document.', e);
   }
+}
+
+function cleanActionAxeKey(raw) {
+  if (raw === null || raw === undefined) return '';
+  if (Array.isArray(raw)) {
+    const refId = refRowIdFromValue(raw, 'Actions_axes');
+    if (refId) return refId;
+    return asList(raw).map(cleanActionAxeKey).filter(Boolean).join(', ');
+  }
+  if (typeof raw === 'object') {
+    const refId = refRowIdFromValue(raw, 'Actions_axes');
+    if (refId) return refId;
+    const fromObject = actionAxeLabelFromRow(raw);
+    if (fromObject) return fromObject;
+    return String(raw.display || raw.label || raw.name || '').trim();
+  }
+  return String(raw || '').trim();
 }
 
 function actionAxeDisplayValue(raw) {
   if (raw === null || raw === undefined || raw === '') return '';
-  if (Array.isArray(raw)) return asList(raw).map(actionAxeDisplayValue).filter(Boolean).join(', ');
+
+  const refId = refRowIdFromValue(raw, 'Actions_axes');
+  if (refId && ACTION_AXE_MAP[refId]) return ACTION_AXE_MAP[refId];
+
+  if (Array.isArray(raw)) {
+    const labelFromRef = refRowIdFromValue(raw, 'Actions_axes');
+    if (labelFromRef && ACTION_AXE_MAP[labelFromRef]) return ACTION_AXE_MAP[labelFromRef];
+    return asList(raw)
+      .map(actionAxeDisplayValue)
+      .filter(s => s && s !== 'R' && s !== 'Actions_axes')
+      .join(', ');
+  }
+
   if (typeof raw === 'object') {
     const fromObject = actionAxeLabelFromRow(raw);
     if (fromObject) return fromObject;
   }
-  const key = cleanDisplay(raw);
-  if (!key) return '';
+
+  const key = cleanActionAxeKey(raw);
+  if (!key || key === 'R' || key === 'Actions_axes') return '';
   return ACTION_AXE_MAP[key] || key.replace(/\s+[—–]\s+/, ' - ');
 }
 
@@ -864,7 +955,7 @@ function showLoader(v) {
   document.getElementById('loader').classList.toggle('hidden', !v);
 }
 
-grist.ready({ requiredAccess: 'read table', columns: [] });
+grist.ready({ requiredAccess: 'full', columns: [] });
 
 grist.onRecords(async (records) => {
   showLoader(true);
