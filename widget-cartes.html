@@ -208,6 +208,14 @@ html, body {
   color: var(--ink3);
   white-space: nowrap;
 }
+.card-top-right {
+  display: flex; align-items: center; gap: 4px; flex-shrink: 0;
+}
+.chip-degre {
+  font-family: 'DM Mono', monospace; font-size: 8.5px; font-weight: 600;
+  color: var(--navy); background: var(--navy-l);
+  padding: 2px 6px; border-radius: 3px; white-space: nowrap;
+}
 
 /* Titre */
 .card-title {
@@ -537,15 +545,22 @@ grist.ready({ requiredAccess: 'full', columns: [] });
 grist.onRecords(async (records) => {
   showLoader(true);
   try {
-    const [volets, axes, structs, modals, contacts] = await Promise.all([
+    // Attendre que docApi soit disponible (fix Chrome)
+    let attempts = 0;
+    while (!grist.docApi && attempts < 20) {
+      await new Promise(r => setTimeout(r, 100));
+      attempts++;
+    }
+    const [volets, axes, structs, modals, contacts, degres] = await Promise.all([
       grist.docApi.fetchTable('Volets'),
       grist.docApi.fetchTable('Axes'),
       grist.docApi.fetchTable('Structures'),
       grist.docApi.fetchTable('Modalites'),
       grist.docApi.fetchTable('Contacts'),
+      grist.docApi.fetchTable('Degrés').catch(() => grist.docApi.fetchTable('Degres').catch(() => ({id:[], libelle:[]}))),
     ]);
 
-    const toRows = t => t.id.map((id,i) => {
+    const toRows = t => (t.id||[]).map((id,i) => {
       const row = {id};
       Object.keys(t).forEach(k => { if(k!=='id') row[k]=t[k][i]; });
       return row;
@@ -556,12 +571,16 @@ grist.onRecords(async (records) => {
     const sRows = toRows(structs);
     const mRows = toRows(modals);
     const cRows = toRows(contacts);
+    const dRows = toRows(degres);
 
     VOLET_MAP  = Object.fromEntries(vRows.map(r => [r.id, r.libelle]));
     AXE_MAP    = Object.fromEntries(aRows.map(r => [r.id, r.libelle]));
     STRUCT_MAP = Object.fromEntries(sRows.map(r => [r.id, r.code]));
     MODAL_MAP  = Object.fromEntries(mRows.map(r => [r.id, r.libelle]));
     CONT_MAP   = Object.fromEntries(cRows.map(r => [r.id, r.nom_prenom]));
+    // Degrés : stocker les valeurs pour le select
+    window.DEGRE_VALUES = dRows.map(r => r.libelle || r.Libelle || Object.values(r).find(v=>typeof v==='string'&&v) || '').filter(Boolean);
+    if (!window.DEGRE_VALUES.length) window.DEGRE_VALUES = ['1er degré', '2nd degré'];
 
     ALL = records.map(r => ({ id: r.id, ...r }));
 
@@ -705,6 +724,16 @@ function closeModal(e) {
 }
 
 // Construire les champs du formulaire modal
+// Convertir date ISO/timestamp → format YYYY-MM-DD pour input[type=date]
+function fmtDate(val) {
+  if (!val) return '';
+  try {
+    const d = new Date(val);
+    if (isNaN(d)) return '';
+    return d.toISOString().split('T')[0];
+  } catch(e) { return ''; }
+}
+
 function buildModalForm(a) {
   const body = document.getElementById('modal-body');
 
@@ -745,8 +774,24 @@ function buildModalForm(a) {
         </select>
       </div>
       <div class="mfield">
-        <label>Période</label>
-        <input type="text" id="m-periode" value="${esc(a.periode||'')}">
+        <label>Degré</label>
+        <select id="m-degre">
+          <option value="">—</option>
+          ${(window.DEGRE_VALUES||['1er degré','2nd degré']).map(v=>{
+            const cur = Array.isArray(a.Degre)?a.Degre[0]:(a.Degre||'');
+            return `<option${v===cur?' selected':''}>${esc(v)}</option>`;
+          }).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="modal-row">
+      <div class="mfield">
+        <label>Date début</label>
+        <input type="date" id="m-debut" value="${fmtDate(a.date_debut)}">
+      </div>
+      <div class="mfield">
+        <label>Date fin</label>
+        <input type="date" id="m-fin" value="${fmtDate(a.date_fin)}">
       </div>
     </div>
     <div class="modal-row">
@@ -792,17 +837,25 @@ async function saveRecord() {
   const structs = [...document.querySelectorAll('#m-structs input:checked')].map(c=>c.value);
   const publics  = [...document.querySelectorAll('#m-publics input:checked')].map(c=>c.value);
 
+  const degreVal = document.getElementById('m-degre').value;
+  const debutVal = document.getElementById('m-debut').value;
+  const finVal   = document.getElementById('m-fin').value;
+
+  const toTs = v => v ? Math.floor(new Date(v).getTime()/1000) : null;
+
   const fields = {
     titre:               document.getElementById('m-titre').value.trim(),
     objectif:            document.getElementById('m-objectif').value.trim(),
     code_gaia:           document.getElementById('m-gaia').value.trim(),
-    periode:             document.getElementById('m-periode').value.trim(),
     journees_stagiaires: parseFloat(document.getElementById('m-jours').value)||null,
     id_volet:            document.getElementById('m-volet').value,
     id_axe:              document.getElementById('m-axe').value,
     id_modalite:         document.getElementById('m-modal').value,
     id_structure:        structs,
     id_publics:          publics,
+    Degre:               degreVal ? [degreVal] : [],
+    date_debut:          toTs(debutVal),
+    date_fin:            toTs(finVal),
   };
 
   // Nettoyer les nulls
@@ -856,6 +909,7 @@ function render() {
     const objectif = (a.objectif||'').replace(/\n/g,' ').trim();
     const periode  = a.periode || '';
     const gaia     = a.code_gaia || '';
+    const degre    = Array.isArray(a.Degre) ? a.Degre.join(', ') : (a.Degre||'');
     const delay    = Math.min(i * 18, 400);
     const isSel    = a.id === selectedId;
 
@@ -869,7 +923,10 @@ function render() {
 
         <div class="card-top">
           ${voletLib ? `<span class="chip-volet">${esc(voletLib)}</span>` : '<span></span>'}
-          ${gaia     ? `<span class="chip-gaia">GAIA&nbsp;${esc(gaia)}</span>` : ''}
+          <span class="card-top-right">
+            ${gaia  ? `<span class="chip-gaia">GAIA&nbsp;${esc(gaia)}</span>` : ''}
+            ${degre ? `<span class="chip-degre">${esc(degre)}</span>` : ''}
+          </span>
         </div>
 
         <div class="card-title">${esc(a.titre||'Sans titre')}</div>
