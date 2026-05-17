@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF</title>
-<!-- Version v13 : résolution Degré par métadonnées de colonne RefList dans Actions_formation -->
+<!-- Version v14 : résolution Degré par table réelle contenant la colonne Degres / Degrés -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -966,6 +966,67 @@ async function discoverReferenceTableIdFromColumn(sourceTableNames, columnNames,
   return '';
 }
 
+
+function tableIdForMetaRow(row) {
+  return firstRowText(row, ['tableId', 'TableId', 'TableID', 'table_id', 'tableid']) || likelyTableIdFromMetaRow(row);
+}
+
+function parentTableIdFromColumnRow(colRow, tableRows) {
+  const parent = colRowParentId(colRow);
+  if (!parent) return '';
+  const meta = (tableRows || []).find(r => String(r.id) === String(parent));
+  return meta ? tableIdForMetaRow(meta) : '';
+}
+
+function tableLooksLikeDegres(table) {
+  const rows = toRowsGeneric(table);
+  const labels = rows.map(degreLabelFromRow).filter(Boolean);
+  if (!labels.length) return false;
+  // On évite d’accepter Actions_formation par accident : une vraie table de référence
+  // comporte très peu de colonnes et des libellés courts comme « Premier degré ».
+  return labels.some(v => normalizeIdentifier(v).includes('degre')) || labels.length <= 10;
+}
+
+async function discoverTableIdsByValueColumn(columnNames, prefix='') {
+  const [tables, cols] = await Promise.all([gristMetaRows(), gristColumnMetaRows()]);
+  const out = [];
+  const seen = new Set();
+  const sourceNorms = new Set(['actionsformation', 'actions_formation']);
+
+  const candidates = cols.filter(c => colRowMatchesName(c, columnNames, prefix));
+  for (const c of candidates) {
+    const tid = parentTableIdFromColumnRow(c, tables);
+    if (!tid) continue;
+    const ntid = normalizeIdentifier(tid);
+    if (sourceNorms.has(ntid)) continue;
+    if (String(tid).startsWith('_grist_')) continue;
+    if (!seen.has(tid)) {
+      seen.add(tid);
+      out.push(tid);
+    }
+  }
+  if (out.length) console.info('[widget-cartes] Tables candidates trouvées par colonne Degrés/Degres :', out);
+  return out;
+}
+
+async function fetchTableByValueColumn(columnNames, emptyTable = {id:[]}, prefix='') {
+  const candidates = await discoverTableIdsByValueColumn(columnNames, prefix);
+  let lastError = null;
+  for (const tableId of candidates) {
+    try {
+      const table = await grist.docApi.fetchTable(tableId);
+      if (table && Array.isArray(table.id) && tableLooksLikeDegres(table)) {
+        console.info('[widget-cartes] Table Degrés chargée par détection de colonne :', tableId);
+        return {table, tableId};
+      }
+    } catch(e) {
+      lastError = e;
+    }
+  }
+  if (lastError) console.warn('[widget-cartes] Échec de chargement des tables candidates Degrés par colonne.', lastError);
+  return {table: emptyTable, tableId: ''};
+}
+
 async function fetchReferenceTableFromColumn(sourceTableNames, columnNames, fallbackNames, emptyTable, prefix='') {
   const fromColumn = await discoverReferenceTableIdFromColumn(sourceTableNames, columnNames, prefix);
   const candidates = [];
@@ -1006,6 +1067,18 @@ async function fetchFirstExistingTableWithId(names, emptyTable = {id:[]}, normal
     } catch(e) {
       lastError = e;
     }
+  }
+
+  // Dernier recours robuste : la page peut s’appeler « Degrés » alors que la table réelle
+  // est restée « Table1 ». On cherche donc une table qui contient une colonne de valeurs
+  // appelée « Degrés » / $Degres et on la charge par son vrai tableId.
+  if (normalizeIdentifier(normalizedPrefix || '').startsWith('degr')) {
+    const byColumn = await fetchTableByValueColumn(
+      ['Degrés', 'Degres', 'Degre_s', 'Degré', 'Degre'],
+      emptyTable,
+      'degr'
+    );
+    if (byColumn.tableId) return byColumn;
   }
 
   console.warn('[widget-cartes] Table introuvable parmi : ' + explicit.join(', '), lastError);
