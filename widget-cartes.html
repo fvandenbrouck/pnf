@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF</title>
-<!-- Version v24 : sécurisation écriture + menu Degres via nom_deg -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -111,26 +110,6 @@ html, body {
   white-space: nowrap;
 }
 .btn-reset:hover { border-color: var(--strawberry); color: var(--strawberry); }
-
-.btn-new {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 11px;
-  font-weight: 600;
-  background: var(--navy);
-  border: 1px solid var(--navy);
-  color: #fff;
-  padding: 6px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all .12s;
-  white-space: nowrap;
-}
-.btn-new:hover {
-  background: #0d2a52;
-  border-color: #0d2a52;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(27,58,107,.18);
-}
 
 .count {
   font-family: 'DM Mono', monospace;
@@ -308,7 +287,6 @@ html, body {
                font-family: 'DM Mono', monospace; font-size: 8.5px; }
 .tag-axe     { background: rgba(27,58,107,.08); color: var(--navy); }
 .tag-modal   { background: rgba(245,160,168,.2); color: #8a2030; }
-.tag-public  { background: rgba(168,221,216,.25); color: #205450; }
 
 /* ── MODALE ───────────────────────────────────────── */
 .overlay {
@@ -507,10 +485,8 @@ html, body {
   <div class="tb-sel"><select id="f-axe"    onchange="applyFilters()"><option value="">Tous les axes</option></select></div>
   <div class="tb-sel"><select id="f-volet"  onchange="applyFilters()"><option value="">Tous les volets</option></select></div>
   <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Toutes les structures</option></select></div>
-  <div class="tb-sel"><select id="f-public" onchange="applyFilters()"><option value="">Tous les publics</option></select></div>
   <div class="tb-sel"><select id="f-modal"  onchange="applyFilters()"><option value="">Toutes les modalités</option></select></div>
   <button class="btn-reset" onclick="resetFilters()" title="Réinitialiser">✕</button>
-  <button class="btn-new" onclick="openCreateModal()">+ Inscrire une action</button>
   <span class="count" id="count">–</span>
 </div>
 
@@ -545,12 +521,8 @@ html, body {
 <script>
 // ── Données ──────────────────────────────────────────────────────────────
 let ALL = [], FILTERED = [];
-let VOLET_MAP = {}, AXE_MAP = {}, ACTION_AXE_MAP = {}, STRUCT_MAP = {}, MODAL_MAP = {}, CONT_MAP = {}, PUBLIC_MAP = {}, DEGRE_MAP = {};
-let VOLET_ID_BY_LABEL = {}, AXE_ID_BY_LABEL = {}, STRUCT_ID_BY_LABEL = {}, MODAL_ID_BY_LABEL = {}, CONT_ID_BY_LABEL = {}, PUBLIC_ID_BY_LABEL = {}, DEGRE_ID_BY_LABEL = {};
-let ACTION_AXE_OPTIONS = [];
-let VOLET_OPTIONS = [], AXE_OPTIONS = [], STRUCT_OPTIONS = [], MODAL_OPTIONS = [], CONTACT_OPTIONS = [], PUBLIC_OPTIONS = [], DEGRE_OPTIONS = [];
-let ACTION_COL = 'id_action_referentiel';
-let MODAL_COL = 'id_modalite';
+let VOLET_MAP = {}, AXE_MAP = {}, STRUCT_MAP = {}, MODAL_MAP = {}, CONT_MAP = {};
+let DEGRE_ID_TO_LABEL = {}, DEGRE_LABEL_TO_ID = {};
 let selectedId = null;
 
 const ROMAN = {I:1,II:2,III:3,IV:4,V:5,VI:6,VII:7,VIII:8};
@@ -561,19 +533,30 @@ function axeNum(lib) {
   return m ? (ROMAN[m[1]] || 0) : 0;
 }
 function esc(s) {
-  return String(s||'')
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;');
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function resolveList(ids, map) {
+  if (!ids) return [];
+  return (Array.isArray(ids) ? ids : [ids]).map(i => map[i]).filter(Boolean);
 }
 
-// Normalise les valeurs simples, les listes JS et les listes Grist encodées ["L", ...]
+function degreLabelFromRow(r) {
+  return firstText(r, ['nom_deg', 'Nom_deg', 'NOM_DEG', 'Degres', 'Degrés', 'libelle', 'Libelle', 'Libellé', 'label', 'Label', 'nom', 'Nom']);
+}
+
+function degreLabelFromValue(v) {
+  const vals = asList(v);
+  if (!vals.length) return '';
+  const labels = vals.map(x => {
+    const key = String(x || '').trim();
+    return DEGRE_ID_TO_LABEL[x] || DEGRE_ID_TO_LABEL[key] || key;
+  }).filter(Boolean);
+  return labels.join(', ');
+}
+
 function asList(v) {
   if (!v) return [];
-  if (Array.isArray(v)) {
-    return v[0] === 'L' ? v.slice(1) : v;
-  }
+  if (Array.isArray(v)) return v[0] === 'L' ? v.slice(1) : v;
   return [v];
 }
 
@@ -583,435 +566,6 @@ function firstText(row, keys) {
     if (typeof v === 'string' && v.trim()) return v.trim();
   }
   return '';
-}
-
-function resolveList(ids, map) {
-  return asList(ids).map(i => map[i] || map[String(i)] || String(i||'').trim()).filter(Boolean);
-}
-
-function publicLabelFromRow(r) {
-  return firstText(r, ['Libellé', 'libelle', 'Libelle', 'label', 'Label', 'nom', 'Nom']);
-}
-
-
-// Table Degrés : identifiant fonctionnel attendu = Degres ; colonne de libellé = nom_deg.
-// La détection par métadonnées évite de dépendre du libellé de page/vue Grist.
-function degreLabelFromRow(r) {
-  return firstText(r, ['nom_deg', 'Nom_deg', 'NOM_DEG', 'Degres', 'Degrés', 'libelle', 'Libelle', 'Libellé', 'label', 'Label', 'nom', 'Nom']);
-}
-
-function normalizeGristName(s) {
-  return String(s || '')
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .toLowerCase().replace(/[^a-z0-9]+/g, '');
-}
-
-function tableToRows(t) {
-  return (t && t.id || []).map((id, i) => {
-    const row = {id};
-    Object.keys(t || {}).forEach(k => { if (k !== 'id') row[k] = t[k][i]; });
-    return row;
-  });
-}
-
-function rawNumericId(v) {
-  if (v === null || v === undefined || v === '') return '';
-  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
-  if (Array.isArray(v)) {
-    const nums = asList(v).filter(x => /^\d+$/.test(String(x || '').trim()));
-    return nums.length ? String(nums[nums.length - 1]) : '';
-  }
-  if (typeof v === 'object') {
-    const row = v.rowId ?? v.row_id ?? v.recordId ?? v.record_id ?? v.ref ?? v.value ?? v.id;
-    return /^\d+$/.test(String(row || '').trim()) ? String(row).trim() : '';
-  }
-  return /^\d+$/.test(String(v || '').trim()) ? String(v).trim() : '';
-}
-
-async function fetchDegresTable() {
-  // 1) Méthode robuste : trouver la table réelle à partir des métadonnées et de la colonne nom_deg.
-  try {
-    const [tablesRaw, colsRaw] = await Promise.all([
-      grist.docApi.fetchTable('_grist_Tables'),
-      grist.docApi.fetchTable('_grist_Tables_column')
-    ]);
-    const tables = tableToRows(tablesRaw);
-    const cols = tableToRows(colsRaw);
-    const tableById = Object.fromEntries(tables.map(t => [String(t.id), t]));
-
-    const candidates = [];
-
-    // Table dont le tableId est Degres, si elle existe vraiment sous cet identifiant.
-    tables.forEach(t => {
-      const tableId = String(t.tableId || '').trim();
-      if (normalizeGristName(tableId) === 'degres') candidates.push(tableId);
-    });
-
-    // Table qui contient une colonne nom_deg : c'est le critère le plus fiable ici.
-    cols.forEach(c => {
-      const colId = String(c.colId || '').trim();
-      const label = String(c.label || '').trim();
-      if (normalizeGristName(colId) === 'nomdeg' || normalizeGristName(label) === 'nomdeg') {
-        const parentId = rawNumericId(c.parentId);
-        const tableId = tableById[parentId] && tableById[parentId].tableId;
-        if (tableId) candidates.push(String(tableId));
-      }
-    });
-
-    for (const tableId of [...new Set(candidates)].filter(Boolean)) {
-      try {
-        const t = await grist.docApi.fetchTable(tableId);
-        if (t && Array.isArray(t.id) && (Object.prototype.hasOwnProperty.call(t, 'nom_deg') || Object.prototype.hasOwnProperty.call(t, 'Nom_deg') || Object.prototype.hasOwnProperty.call(t, 'NOM_DEG'))) {
-          console.info('[widget-cartes] Table Degres résolue via métadonnées :', tableId);
-          return t;
-        }
-      } catch (e) {
-        console.warn('[widget-cartes] Table candidate Degres inaccessible :', tableId, e);
-      }
-    }
-  } catch (e) {
-    console.warn('[widget-cartes] Impossible de lire les métadonnées pour Degres :', e);
-  }
-
-  // 2) Fallback direct. Si celui-ci échoue, l'ID technique réel de la table n'est pas Degres.
-  try {
-    const t = await grist.docApi.fetchTable('Degres');
-    console.info('[widget-cartes] Table Degres chargée directement.');
-    return t;
-  } catch (e) {
-    console.error('[widget-cartes] Table Degres introuvable. Vérifier l’ID technique de table et pas seulement le nom de page/vue.', e);
-    return {id:[], nom_deg:[]};
-  }
-}
-
-function buildPublicMap(rows) {
-  const entries = [];
-  const add = (k, label) => {
-    const key = String(k ?? '').trim();
-    if (key && label) entries.push([key, label]);
-  };
-  rows.forEach(r => {
-    const label = publicLabelFromRow(r);
-    if (!label) return;
-    add(r.id, label);
-    add(`Publics[${r.id}]`, label);
-    add(`R,Publics,${r.id}`, label);
-    add(label, label);
-  });
-  return Object.fromEntries(entries);
-}
-
-function publicValue(v) {
-  const key = String(v||'').trim();
-  return PUBLIC_MAP[v] || PUBLIC_MAP[key] || key;
-}
-
-function publicValues(action) {
-  return asList(action && action.id_publics).map(publicValue).filter(Boolean);
-}
-
-function contactLabelFromRow(r) {
-  const prenom = firstText(r, ['PRENOM', 'Prenom', 'Prénom', 'prenom', 'first_name']);
-  const nom    = firstText(r, ['NOM', 'Nom', 'nom', 'last_name']);
-  const email  = firstText(r, ['EMAIL', 'Email', 'email', 'mail']);
-  const nomPrenom = firstText(r, ['nom_prenom', 'NOM_PRENOM', 'Nom_prenom', 'display', 'Display']);
-  const fullName = nomPrenom || [prenom, nom].filter(Boolean).join(' ').trim() || nom || prenom;
-  return [fullName, email ? `<${email}>` : ''].filter(Boolean).join(' ').trim();
-}
-
-function contactValue(v) {
-  const key = String(v||'').trim();
-  return CONT_MAP[v] || CONT_MAP[key] || key;
-}
-
-function contactValues(action) {
-  return asList(action && (action.id_contacts || action.contacts_pilotes || action.Contacts_pilotes || action['Contacts / pilotes']))
-    .map(contactValue)
-    .filter(Boolean);
-}
-
-
-
-function buildIdByLabel(rows, labelFn, extraAliasesFn) {
-  const out = {};
-  (rows || []).forEach(r => {
-    const id = String(r.id ?? '').trim();
-    const label = String(labelFn(r) || '').trim();
-    if (!id || !label) return;
-    out[label] = id;
-    if (extraAliasesFn) {
-      (extraAliasesFn(r) || []).forEach(alias => {
-        const a = String(alias || '').trim();
-        if (a) out[a] = id;
-      });
-    }
-  });
-  return out;
-}
-
-function buildOptions(rows, labelFn) {
-  return (rows || [])
-    .map(r => ({ value: String(r.id ?? '').trim(), label: String(labelFn(r) || '').trim() }))
-    .filter(o => o.value && o.label)
-    .sort((a,b) => a.label.localeCompare(b.label, 'fr', {numeric:true}));
-}
-
-function rawRefId(value, tableName) {
-  if (value === null || value === undefined || value === '') return '';
-  const fromKnownRef = tableName ? refRowIdFromValue(value, tableName) : '';
-  if (fromKnownRef) return fromKnownRef;
-  if (Array.isArray(value)) {
-    const arr = asList(value);
-    return arr.length === 1 ? rawRefId(arr[0], tableName) : '';
-  }
-  if (typeof value === 'object') {
-    const row = value.rowId ?? value.row_id ?? value.recordId ?? value.record_id ?? value.ref ?? value.value ?? value.id;
-    if (row !== undefined && row !== null && /^\d+$/.test(String(row))) return String(row);
-    return '';
-  }
-  const s = String(value).trim();
-  return /^\d+$/.test(s) ? s : '';
-}
-
-function cleanInvalidRefText(value) {
-  return String(value ?? '')
-    .trim()
-    .replace(/^#\s*Invalid\s+Ref\s*:\s*/i, '')
-    .replace(/^#\s*INVALID\s+REF\s*:\s*/i, '')
-    .trim();
-}
-
-function refId(value, idByLabel, map, tableName) {
-  const raw = rawRefId(value, tableName);
-  if (raw && (!map || map[raw])) return raw;
-  const key = cleanInvalidRefText(value);
-  return (idByLabel && idByLabel[key]) || (raw || '');
-}
-
-function refLabel(value, map, idByLabel, tableName) {
-  if (value === null || value === undefined || value === '') return '';
-  const id = refId(value, idByLabel, map, tableName);
-  if (id && map && map[id]) return map[id];
-  const key = cleanInvalidRefText(value);
-  return (map && (map[key] || map[value])) || key;
-}
-
-function refListLabels(value, map, idByLabel, tableName) {
-  return asList(value).map(v => refLabel(v, map, idByLabel, tableName)).filter(Boolean);
-}
-
-function makeRef(value, idByLabel, map, tableName) {
-  const id = refId(value, idByLabel, map, tableName);
-  if (!id) return null;
-  const n = Number(id);
-  // Format explicite Grist pour une colonne Reference.
-  // Évite que certaines références simples soient écrites comme des entiers bruts non résolus.
-  return tableName ? ['R', tableName, n] : n;
-}
-
-function makeRefList(values, idByLabel, map, tableName) {
-  const ids = (values || [])
-    .map(v => refId(v, idByLabel, map, tableName))
-    .filter(Boolean)
-    .map(v => Number(v));
-  return ['L', ...Array.from(new Set(ids))];
-}
-
-function selectedRef(current, opt, idByLabel, map, tableName) {
-  const curId = refId(current, idByLabel, map, tableName);
-  const curLabel = refLabel(current, map, idByLabel, tableName);
-  return (curId === String(opt.value) || curLabel === opt.label) ? ' selected' : '';
-}
-
-function checkedRefList(currentValues, opt, idByLabel, map, tableName) {
-  const ids = asList(currentValues).map(v => refId(v, idByLabel, map, tableName)).filter(Boolean);
-  const labels = asList(currentValues).map(v => refLabel(v, map, idByLabel, tableName)).filter(Boolean);
-  return (ids.includes(String(opt.value)) || labels.includes(opt.label)) ? ' checked' : '';
-}
-
-function firstRowText(row, keys) {
-  for (const k of keys) {
-    const v = row && row[k];
-    if (v !== undefined && v !== null && String(v).trim()) return String(v).trim();
-  }
-  return '';
-}
-
-function actionAxeNumeroFromRow(r) {
-  return firstRowText(r, ['N° action', 'N_action', 'N_action_', 'numero', 'Numero', 'num']);
-}
-
-function actionAxeLibelleFromRow(r) {
-  return firstRowText(r, ['libelle', 'Libelle', 'Libellé', 'label', 'Label', 'intitule', 'Intitule', 'Intitulé']);
-}
-
-function actionAxeLabelFromRow(r) {
-  const numero = actionAxeNumeroFromRow(r);
-  const lib = actionAxeLibelleFromRow(r);
-  return [numero, lib].filter(Boolean).join(' - ');
-}
-
-function actionAxeValueFromRow(r) {
-  // Valeur enregistrée dans Actions_formation : l'id de ligne de la table de référence Actions_axes.
-  // Ne pas utiliser « N° action » comme valeur : ce numéro peut se répéter d'un axe à l'autre.
-  return String(r.id || '').trim();
-}
-
-function refRowIdFromValue(raw, expectedTable) {
-  if (raw === null || raw === undefined || raw === '') return '';
-
-  if (Array.isArray(raw)) {
-    const arr = raw[0] === 'L' ? raw.slice(1) : raw;
-    const tableSeen = arr.some(v => String(v || '').trim() === expectedTable);
-    const nums = arr
-      .map(v => (typeof v === 'number' && Number.isFinite(v)) ? String(v) : String(v || '').trim())
-      .filter(v => /^\d+$/.test(v));
-    if (tableSeen && nums.length) return nums[nums.length - 1];
-    if (arr.length === 1 && nums.length === 1) return nums[0];
-    return '';
-  }
-
-  if (typeof raw === 'object') {
-    const table = raw.tableId || raw.table || raw.refTableId || raw.table_id || raw._tableId || raw.type;
-    const row = raw.rowId ?? raw.row_id ?? raw.recordId ?? raw.record_id ?? raw.ref ?? raw.value ?? raw.id;
-    if ((!table || String(table) === expectedTable) && row !== undefined && row !== null && /^\d+$/.test(String(row))) {
-      return String(row);
-    }
-    for (const k of ['ref', 'value', 'rawValue', 'cellValue']) {
-      if (raw[k] !== raw && raw[k] !== undefined) {
-        const nested = refRowIdFromValue(raw[k], expectedTable);
-        if (nested) return nested;
-      }
-    }
-    return '';
-  }
-
-  const s = String(raw).trim();
-  const escaped = expectedTable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const patterns = [
-    new RegExp('^' + escaped + '\\[(\\d+)\\]$'),
-    new RegExp('^' + escaped + '\\s*[:;,]\\s*(\\d+)$'),
-    new RegExp('(?:^|[,;])\\s*' + escaped + '\\s*[,;]\\s*(\\d+)(?:[,;]|$)'),
-    /rowId["']?\s*[:=]\s*(\d+)/i,
-    /recordId["']?\s*[:=]\s*(\d+)/i
-  ];
-  for (const p of patterns) {
-    const m = s.match(p);
-    if (m) return m[1];
-  }
-  return '';
-}
-
-function cleanActionAxeKey(raw) {
-  if (raw === null || raw === undefined) return '';
-  if (Array.isArray(raw)) {
-    const refId = refRowIdFromValue(raw, 'Actions_axes');
-    if (refId) return refId;
-    return asList(raw).map(cleanActionAxeKey).filter(Boolean).join(', ');
-  }
-  if (typeof raw === 'object') {
-    const refId = refRowIdFromValue(raw, 'Actions_axes');
-    if (refId) return refId;
-    const fromObject = actionAxeLabelFromRow(raw);
-    if (fromObject) return fromObject;
-    return String(raw.display || raw.label || raw.name || '').trim();
-  }
-  return String(raw || '').trim();
-}
-
-function buildActionAxeMap(rows) {
-  const entries = [];
-  const add = (k, label) => {
-    const key = String(k || '').trim();
-    if (key && label) entries.push([key, label]);
-  };
-
-  rows.forEach(r => {
-    const label = actionAxeLabelFromRow(r);
-    const id = String(r.id || '').trim();
-    const numero = String(actionAxeNumeroFromRow(r) || '').trim();
-    if (!label) return;
-
-    if (id) {
-      add(id, label);
-      add(`Actions_axes[${id}]`, label);
-      add(`R,Actions_axes,${id}`, label);
-      add(`Actions_axes:${id}`, label);
-    }
-
-    // Clés de secours seulement pour les documents où Grist renverrait le numéro affiché.
-    // Elles peuvent être ambiguës si plusieurs axes ont le même N° action, mais évitent un affichage vide.
-    if (numero) {
-      add(numero, label);
-      add(`Actions_axes[${numero}]`, label);
-    }
-
-    add(label, label);
-    add(label.replace(' - ', ' — '), label);
-  });
-
-  return Object.fromEntries(entries);
-}
-
-function actionAxeDisplay(v) {
-  if (v === null || v === undefined || v === '') return '';
-  const refId = refRowIdFromValue(v, 'Actions_axes');
-  if (refId && ACTION_AXE_MAP[refId]) return ACTION_AXE_MAP[refId];
-
-  if (typeof v === 'object' && !Array.isArray(v)) {
-    const fromObject = actionAxeLabelFromRow(v);
-    if (fromObject) return fromObject;
-  }
-
-  if (Array.isArray(v)) {
-    const labelFromRef = refRowIdFromValue(v, 'Actions_axes');
-    if (labelFromRef && ACTION_AXE_MAP[labelFromRef]) return ACTION_AXE_MAP[labelFromRef];
-    return asList(v).map(actionAxeDisplay).filter(s => s && s !== 'R' && s !== 'Actions_axes').join(', ');
-  }
-
-  const key = cleanActionAxeKey(v);
-  return ACTION_AXE_MAP[key] || key.replace(/\s+[—–]\s+/, ' - ');
-}
-
-function actionAxeRefId(v) {
-  return refRowIdFromValue(v, 'Actions_axes') || cleanActionAxeKey(v);
-}
-
-function getActionAxe(action) {
-  if (!action) return '';
-  const keys = [ACTION_COL, 'id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'];
-  for (const k of keys) {
-    if (Object.prototype.hasOwnProperty.call(action, k) && action[k] !== undefined && action[k] !== null && action[k] !== '') return action[k];
-  }
-  return '';
-}
-
-function getModalite(action) {
-  if (!action) return '';
-  const keys = [MODAL_COL, 'id_modalite', 'id_modalité', 'id_modalites', 'modalite', 'Modalite', 'Modalité', 'Modalit_', 'Modalite_', 'Modalit__'];
-  for (const k of keys) {
-    if (Object.prototype.hasOwnProperty.call(action, k) && action[k] !== undefined && action[k] !== null && action[k] !== '') return action[k];
-  }
-  return '';
-}
-
-function shouldRepairInvalidRef(currentValue, selectedValue, idByLabel, map, tableName) {
-  // Ne pas réécrire automatiquement une référence saine simplement parce que Grist
-  // l'envoie au widget sous forme de libellé affiché (ex. « Hybride »).
-  // On ne force la réparation que si la valeur reçue porte explicitement la marque
-  // d'une référence invalide. Sinon, modifier les publics peut dégrader Modalité.
-  const text = String(currentValue ?? '').trim();
-  if (!/^#\s*Invalid\s+Ref\s*:/i.test(text) && !/^#\s*INVALID\s+REF\s*:/i.test(text)) return false;
-  const selectedId = refId(selectedValue, idByLabel, map, tableName);
-  const currentId = refId(currentValue, idByLabel, map, tableName);
-  return Boolean(selectedId && currentId && selectedId === currentId);
-}
-
-function detectExistingColumn(records, candidates, fallback) {
-  const keys = new Set();
-  (records || []).slice(0, 5).forEach(r => Object.keys(r || {}).forEach(k => keys.add(k)));
-  for (const c of candidates) if (keys.has(c)) return c;
-  return fallback;
 }
 
 // ── Init Grist ────────────────────────────────────────────────────────────
@@ -1026,15 +580,13 @@ grist.onRecords(async (records) => {
       await new Promise(r => setTimeout(r, 100));
       attempts++;
     }
-    const [volets, axes, actionsAxes, structs, modals, contacts, publics, degres] = await Promise.all([
+    const [volets, axes, structs, modals, contacts, degres] = await Promise.all([
       grist.docApi.fetchTable('Volets'),
       grist.docApi.fetchTable('Axes'),
-      grist.docApi.fetchTable('Actions_axes').catch(() => ({id:[], 'N° action':[], libelle:[], Libelle:[], 'Libellé':[]})),
       grist.docApi.fetchTable('Structures'),
       grist.docApi.fetchTable('Modalites'),
       grist.docApi.fetchTable('Contacts'),
-      grist.docApi.fetchTable('Publics').catch(() => ({id:[], libelle:[], Libelle:[], 'Libellé':[]})),
-      fetchDegresTable(),
+      grist.docApi.fetchTable('Degres').catch(() => ({id:[], nom_deg:[]})),
     ]);
 
     const toRows = t => (t.id||[]).map((id,i) => {
@@ -1045,57 +597,27 @@ grist.onRecords(async (records) => {
 
     const vRows = toRows(volets);
     const aRows = toRows(axes);
-    const aaRows = toRows(actionsAxes);
     const sRows = toRows(structs);
     const mRows = toRows(modals);
     const cRows = toRows(contacts);
-    const pRows = toRows(publics);
     const dRows = toRows(degres);
 
-    const simpleLabel = r => r.libelle || r.Libelle || r['Libellé'] || '';
-    const structLabel = r => r.code || r.Code || r.libelle || r.Libelle || r['Libellé'] || '';
-
-    VOLET_MAP  = Object.fromEntries(vRows.map(r => [String(r.id), simpleLabel(r)]));
-    AXE_MAP    = Object.fromEntries(aRows.map(r => [String(r.id), simpleLabel(r)]));
-    ACTION_AXE_MAP = buildActionAxeMap(aaRows);
-    ACTION_AXE_OPTIONS = aaRows
-      .map(r => ({ value: actionAxeValueFromRow(r), label: actionAxeLabelFromRow(r) }))
-      .filter(o => o.value && o.label)
-      .sort((a,b) => a.label.localeCompare(b.label, 'fr', {numeric:true}));
-    STRUCT_MAP = Object.fromEntries(sRows.map(r => [String(r.id), structLabel(r)]));
-    MODAL_MAP  = Object.fromEntries(mRows.map(r => [String(r.id), simpleLabel(r)]));
-    CONT_MAP   = Object.fromEntries(cRows.map(r => [String(r.id), contactLabelFromRow(r)]).filter(([,v]) => v));
-    PUBLIC_MAP = buildPublicMap(pRows);
-    DEGRE_MAP  = Object.fromEntries(dRows.map(r => [String(r.id), degreLabelFromRow(r)]).filter(([,v]) => v));
-
-    VOLET_ID_BY_LABEL  = buildIdByLabel(vRows, simpleLabel);
-    AXE_ID_BY_LABEL    = buildIdByLabel(aRows, simpleLabel);
-    STRUCT_ID_BY_LABEL = buildIdByLabel(sRows, structLabel, r => [r.libelle, r.Libelle, r['Libellé'], r.Code, r.code]);
-    MODAL_ID_BY_LABEL  = buildIdByLabel(mRows, simpleLabel);
-    CONT_ID_BY_LABEL   = buildIdByLabel(cRows, contactLabelFromRow, r => [firstText(r, ['nom_prenom', 'NOM_PRENOM', 'Nom_prenom']), [firstText(r, ['PRENOM','Prenom','Prénom','prenom']), firstText(r, ['NOM','Nom','nom'])].filter(Boolean).join(' ').trim()]);
-    PUBLIC_ID_BY_LABEL = buildIdByLabel(pRows, publicLabelFromRow);
-    DEGRE_ID_BY_LABEL = buildIdByLabel(dRows, degreLabelFromRow);
-
-    VOLET_OPTIONS   = buildOptions(vRows, simpleLabel);
-    AXE_OPTIONS     = buildOptions(aRows, simpleLabel);
-    STRUCT_OPTIONS  = buildOptions(sRows, structLabel);
-    MODAL_OPTIONS   = buildOptions(mRows, simpleLabel);
-    CONTACT_OPTIONS = buildOptions(cRows, contactLabelFromRow);
-    PUBLIC_OPTIONS  = buildOptions(pRows, publicLabelFromRow);
-    DEGRE_OPTIONS  = buildOptions(dRows, degreLabelFromRow);
-
-    window.VOLET_VALUES  = VOLET_OPTIONS.map(o => o.label);
-    window.AXE_VALUES    = AXE_OPTIONS.map(o => o.label);
-    window.STRUCT_VALUES = STRUCT_OPTIONS.map(o => o.label);
-    window.MODAL_VALUES  = MODAL_OPTIONS.map(o => o.label);
-    window.CONTACT_VALUES = CONTACT_OPTIONS.map(o => o.label);
-    window.PUBLIC_VALUES = PUBLIC_OPTIONS.map(o => o.label);
-    window.DEGRE_VALUES = DEGRE_OPTIONS.map(o => o.label);
-    if (!window.DEGRE_VALUES.length) console.warn('[widget-cartes] Aucune valeur chargée pour Degres.nom_deg.');
+    VOLET_MAP  = Object.fromEntries(vRows.map(r => [r.id, r.libelle]));
+    AXE_MAP    = Object.fromEntries(aRows.map(r => [r.id, r.libelle]));
+    STRUCT_MAP = Object.fromEntries(sRows.map(r => [r.id, r.code]));
+    MODAL_MAP  = Object.fromEntries(mRows.map(r => [r.id, r.libelle]));
+    CONT_MAP   = Object.fromEntries(cRows.map(r => [r.id, r.nom_prenom]));
+    // Degrés : table technique attendue = Degres ; colonne de libellé attendue = nom_deg
+    DEGRE_ID_TO_LABEL = Object.fromEntries(dRows
+      .map(r => [r.id, degreLabelFromRow(r)])
+      .filter(([,v]) => v));
+    DEGRE_LABEL_TO_ID = Object.fromEntries(dRows
+      .map(r => [degreLabelFromRow(r), r.id])
+      .filter(([k]) => k));
+    window.DEGRE_VALUES = [...new Set(dRows.map(degreLabelFromRow).filter(Boolean))]
+      .sort((a,b)=>a.localeCompare(b,'fr'));
 
     ALL = records.map(r => ({ id: r.id, ...r }));
-    ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'], ACTION_COL);
-    MODAL_COL = detectExistingColumn(ALL, ['id_modalite', 'id_modalité', 'id_modalites', 'modalite', 'Modalite', 'Modalité', 'Modalit_', 'Modalite_', 'Modalit__'], MODAL_COL);
 
     buildFilters();
     applyFilters();
@@ -1119,35 +641,16 @@ grist.onRecord((record, mappings) => {
 });
 
 // ── Filtres ────────────────────────────────────────────────────────────────
-// Les filtres sont alimentés par les tables de référence, pas seulement par les
-// valeurs déjà utilisées dans Actions_formation.
+// Grist envoie des valeurs texte déjà résolues (pas des ids)
+// → on alimente les filtres depuis les valeurs réelles des enregistrements
 function buildFilters() {
-  fillFromValues('f-axe',    window.AXE_VALUES || []);
-  fillFromValues('f-volet',  window.VOLET_VALUES || []);
-  fillFromValues('f-struct', window.STRUCT_VALUES || []);
-  fillFromValues('f-public', window.PUBLIC_VALUES || []);
-  fillFromValues('f-modal',  window.MODAL_VALUES || []);
-}
-
-function fillFromValues(selId, values) {
-  const sel = document.getElementById(selId);
-  if (!sel) return;
-  const cur = sel.value;
-  while (sel.options.length > 1) sel.remove(1);
-  const seen = new Set();
-  (values || []).forEach(v => {
-    const s = String(v || '').trim();
-    if (!s || seen.has(s)) return;
-    seen.add(s);
-    const o = document.createElement('option');
-    o.value = s;
-    o.textContent = s;
-    sel.appendChild(o);
-  });
-  const opts = Array.from(sel.options).slice(1).sort((a,b)=>a.text.localeCompare(b.text, 'fr', {numeric:true}));
-  while (sel.options.length > 1) sel.remove(1);
-  opts.forEach(o => sel.appendChild(o));
-  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+  fillFromData('f-axe',    r => r.id_axe);
+  fillFromData('f-volet',  r => r.id_volet);
+  fillFromData('f-struct',  r => {
+    const v = r.id_structure;
+    return Array.isArray(v) ? v : [v];
+  }, true);
+  fillFromData('f-modal',  r => r.id_modalite);
 }
 
 function fillFromData(selId, getter, isList) {
@@ -1179,9 +682,9 @@ function applyFilters() {
   const volet  = document.getElementById('f-volet').value;
   const struct = document.getElementById('f-struct').value;
   const modal  = document.getElementById('f-modal').value;
-  const pub    = document.getElementById('f-public').value;
   const search = document.getElementById('f-search').value.toLowerCase();
 
+  // Les champs arrivent en texte résolu → comparaison directe en chaîne
   function matchText(val, filter) {
     if (!filter) return true;
     return String(val||'').trim() === filter;
@@ -1193,21 +696,12 @@ function applyFilters() {
   }
 
   FILTERED = ALL.filter(a => {
-    const axeLib    = refLabel(a.id_axe, AXE_MAP, AXE_ID_BY_LABEL, 'Axes');
-    const voletLib  = refLabel(a.id_volet, VOLET_MAP, VOLET_ID_BY_LABEL, 'Volets');
-    const modalLib  = refLabel(getModalite(a), MODAL_MAP, MODAL_ID_BY_LABEL, 'Modalites');
-    const structs   = refListLabels(a.id_structure, STRUCT_MAP, STRUCT_ID_BY_LABEL, 'Structures');
-
-    if (!matchText(axeLib,   axe))    return false;
-    if (!matchText(voletLib, volet))  return false;
-    if (!matchText(modalLib, modal))  return false;
-    if (!matchList(structs,  struct)) return false;
-    if (!matchList(publicValues(a), pub)) return false;
+    if (!matchText(a.id_axe,      axe))    return false;
+    if (!matchText(a.id_volet,    volet))   return false;
+    if (!matchText(a.id_modalite, modal))   return false;
+    if (!matchList(a.id_structure, struct)) return false;
     if (search && !(a.titre||'').toLowerCase().includes(search) &&
-                  !(a.objectif||'').toLowerCase().includes(search) &&
-                  !publicValues(a).join(' ').toLowerCase().includes(search) &&
-                  !contactValues(a).join(' ').toLowerCase().includes(search) &&
-                  !actionAxeDisplay(getActionAxe(a)).toLowerCase().includes(search)) return false;
+                  !(a.objectif||'').toLowerCase().includes(search)) return false;
     return true;
   });
 
@@ -1217,7 +711,7 @@ function applyFilters() {
 }
 
 function resetFilters() {
-  ['f-axe','f-volet','f-struct','f-public','f-modal'].forEach(id =>
+  ['f-axe','f-volet','f-struct','f-modal'].forEach(id =>
     document.getElementById(id).value = '');
   document.getElementById('f-search').value = '';
   applyFilters();
@@ -1234,37 +728,24 @@ function selectCard(id) {
 
 // ── MODALE ────────────────────────────────────────────────────────────────
 let CURRENT_ACTION = null;
-let CURRENT_MODE = 'edit';
-let INITIAL_FORM = null;
 let REF_LISTS = {};  // volets, axes, structs, modals, contacts, publics
 
-function openCreateModal() {
-  openModal({ id: null }, 'create');
-}
-
-function openModal(action, mode='edit') {
+function openModal(action) {
   CURRENT_ACTION = action;
-  CURRENT_MODE = mode;
-  const isNew = mode === 'create';
 
   // Bande de couleur
-  const axeLib = refLabel(action.id_axe, AXE_MAP, AXE_ID_BY_LABEL, 'Axes');
-  const voletLib = refLabel(action.id_volet, VOLET_MAP, VOLET_ID_BY_LABEL, 'Volets');
+  const axeLib = String(action.id_axe||'');
   const num    = axeNum(axeLib);
   document.getElementById('modal-band').className =
     'modal-band ' + (BANDS[num]||'').replace('band-','band-');
 
   // Titre et méta
-  document.getElementById('modal-title').textContent = isNew ? 'Inscrire une action' : (action.titre||'Sans titre');
-  document.getElementById('modal-meta').textContent  = isNew
-    ? 'Nouvelle action de formation'
-    : [voletLib, axeLib, action.periode].filter(Boolean).join(' · ');
+  document.getElementById('modal-title').textContent = action.titre||'Sans titre';
+  document.getElementById('modal-meta').textContent  =
+    [action.id_volet, action.id_axe, action.periode].filter(Boolean).join(' · ');
 
   // Construire le formulaire
   buildModalForm(action);
-  INITIAL_FORM = readFormSnapshot();
-
-  document.getElementById('btn-save').textContent = isNew ? 'Inscrire' : 'Enregistrer';
 
   // Afficher
   document.getElementById('overlay').classList.remove('hidden');
@@ -1275,9 +756,6 @@ function closeModal(e) {
   if (e && e.target !== document.getElementById('overlay')) return;
   document.getElementById('overlay').classList.add('hidden');
   CURRENT_ACTION = null;
-  CURRENT_MODE = 'edit';
-  INITIAL_FORM = null;
-  document.getElementById('btn-save').textContent = 'Enregistrer';
 }
 
 // Construire les champs du formulaire modal
@@ -1285,14 +763,7 @@ function closeModal(e) {
 function fmtDate(val) {
   if (!val) return '';
   try {
-    let d;
-    if (typeof val === 'number') {
-      d = new Date(val < 100000000000 ? val * 1000 : val);
-    } else if (/^\d{4}-\d{2}-\d{2}/.test(String(val))) {
-      return String(val).slice(0, 10);
-    } else {
-      d = new Date(val);
-    }
+    const d = new Date(val);
     if (isNaN(d)) return '';
     return d.toISOString().split('T')[0];
   } catch(e) { return ''; }
@@ -1301,74 +772,50 @@ function fmtDate(val) {
 function buildModalForm(a) {
   const body = document.getElementById('modal-body');
 
-  // Valeurs uniques de secours depuis les actions existantes
-  const uniq = field => [...new Set(ALL.map(r=>String(r[field]||'')).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
-  const uniqList = field => [...new Set(ALL.flatMap(r => asList(r[field])).map(String).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
-
-  const optionList = (preferred, fallbackField, map, idByLabel, tableName, isList=false) => {
-    if (preferred && preferred.length) return preferred;
-    const vals = isList ? uniqList(fallbackField) : uniq(fallbackField);
-    const seen = new Set();
-    return vals.map(v => {
-      const id = refId(v, idByLabel, map, tableName);
-      const label = refLabel(v, map, idByLabel, tableName);
-      return { value: id || label, label };
-    }).filter(o => o.value && o.label && !seen.has(o.value) && seen.add(o.value));
-  };
-  const selected = (cur, v) => String(cur||'').trim() === String(v||'').trim() ? ' selected' : '';
-  const selectedAction = (cur, opt) => {
-    const refId = actionAxeRefId(cur);
-    const curText = cleanActionAxeKey(cur);
-    return (refId === String(opt.value||'').trim() || curText === String(opt.value||'').trim() || actionAxeDisplay(cur) === opt.label) ? ' selected' : '';
-  };
-
-  const voletOptions   = optionList(VOLET_OPTIONS,   'id_volet',     VOLET_MAP,  VOLET_ID_BY_LABEL,  'Volets');
-  const axeOptions     = optionList(AXE_OPTIONS,     'id_axe',       AXE_MAP,    AXE_ID_BY_LABEL,    'Axes');
-  const modalOptions   = optionList(MODAL_OPTIONS,   MODAL_COL,      MODAL_MAP,  MODAL_ID_BY_LABEL,  'Modalites');
-  const structOptions  = optionList(STRUCT_OPTIONS,  'id_structure', STRUCT_MAP, STRUCT_ID_BY_LABEL, 'Structures', true);
-  const contactOptions = optionList(CONTACT_OPTIONS, 'id_contacts',  CONT_MAP,   CONT_ID_BY_LABEL,   'Contacts', true);
-  const publicOptions  = optionList(PUBLIC_OPTIONS,  'id_publics',   PUBLIC_MAP, PUBLIC_ID_BY_LABEL, 'Publics', true);
-  const degreOptions   = optionList(DEGRE_OPTIONS,   'Degre',        DEGRE_MAP, DEGRE_ID_BY_LABEL, '', true);
-  const actionVal = getActionAxe(a);
+  // Valeurs uniques pour les selects (depuis les données)
+  const uniq = field => [...new Set(ALL.map(r=>String(r[field]||'')).filter(Boolean))].sort();
+  const uniqList = field => [...new Set(ALL.flatMap(r => {
+    const v = r[field]; return Array.isArray(v)?v:(v?[v]:[]);
+  }).map(String).filter(Boolean))].sort();
 
   body.innerHTML = `
     <div class="mfield full">
       <label>Titre</label>
-      <input type="text" id="m-titre" value="${esc(a.titre||'')}" placeholder="Titre de l'action">
+      <input type="text" id="m-titre" value="${esc(a.titre||'')}">
     </div>
     <div class="mfield full">
       <label>Objectif</label>
-      <textarea id="m-objectif" rows="5" placeholder="Objectif de formation">${esc(a.objectif||'')}</textarea>
+      <textarea id="m-objectif" rows="5">${esc(a.objectif||'')}</textarea>
     </div>
     <div class="modal-row">
+      <div class="mfield">
+        <label>Volet</label>
+        <select id="m-volet">
+          ${uniq('id_volet').map(v=>`<option${v===String(a.id_volet||'')?'selected':''}>${esc(v)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="mfield">
+        <label>Axe</label>
+        <select id="m-axe">
+          ${uniq('id_axe').map(v=>`<option${v===String(a.id_axe||'')?'selected':''}>${esc(v)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="modal-row">
+      <div class="mfield">
+        <label>Modalité</label>
+        <select id="m-modal">
+          ${uniq('id_modalite').map(v=>`<option${v===String(a.id_modalite||'')?'selected':''}>${esc(v)}</option>`).join('')}
+        </select>
+      </div>
       <div class="mfield">
         <label>Degré</label>
         <select id="m-degre">
           <option value="">—</option>
-          ${degreOptions.map(o=>`<option value="${esc(o.value)}"${checkedRefList(a.Degre, o, DEGRE_ID_BY_LABEL, DEGRE_MAP, '').replace(' checked',' selected')}>${esc(o.label)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="mfield">
-        <label>Volet</label>
-        <select id="m-volet">
-          <option value="">—</option>
-          ${voletOptions.map(o=>`<option value="${esc(o.value)}"${selectedRef(a.id_volet, o, VOLET_ID_BY_LABEL, VOLET_MAP, 'Volets')}>${esc(o.label)}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-    <div class="modal-row">
-      <div class="mfield">
-        <label>Axe</label>
-        <select id="m-axe">
-          <option value="">—</option>
-          ${axeOptions.map(o=>`<option value="${esc(o.value)}"${selectedRef(a.id_axe, o, AXE_ID_BY_LABEL, AXE_MAP, 'Axes')}>${esc(o.label)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="mfield">
-        <label>Action (référentiel)</label>
-        <select id="m-action-axe">
-          <option value="">—</option>
-          ${ACTION_AXE_OPTIONS.map(o=>`<option value="${esc(o.value)}"${selectedAction(actionVal, o)}>${esc(o.label)}</option>`).join('')}
+          ${(window.DEGRE_VALUES||[]).map(v=>{
+            const cur = degreLabelFromValue(a.Degre);
+            return `<option value="${esc(v)}"${v===cur?' selected':''}>${esc(v)}</option>`;
+          }).join('')}
         </select>
       </div>
     </div>
@@ -1384,170 +831,86 @@ function buildModalForm(a) {
     </div>
     <div class="modal-row">
       <div class="mfield">
-        <label>Modalité</label>
-        <select id="m-modal">
-          <option value="">—</option>
-          ${modalOptions.map(o=>`<option value="${esc(o.value)}"${selectedRef(getModalite(a), o, MODAL_ID_BY_LABEL, MODAL_MAP, 'Modalites')}>${esc(o.label)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="mfield">
         <label>Code GAIA</label>
         <input type="text" id="m-gaia" value="${esc(a.code_gaia||'')}">
       </div>
-    </div>
-    <div class="modal-row">
       <div class="mfield">
         <label>Journées stagiaires</label>
-        <input type="number" id="m-jours" min="0.1" step="0.1" inputmode="decimal" value="${a.journees_stagiaires ?? ''}" placeholder="Ex. 12.5">
+        <input type="number" id="m-jours" step="0.5" value="${a.journees_stagiaires||''}">
       </div>
-      <div class="mfield"></div>
     </div>
     <div class="mfield full">
       <label>Structure(s) porteuse(s)</label>
       <div class="mchips" id="m-structs">
-        ${structOptions.map(o => `<label class="mchip"><input type="checkbox" value="${esc(o.value)}"${checkedRefList(a.id_structure, o, STRUCT_ID_BY_LABEL, STRUCT_MAP, 'Structures')}><span>${esc(o.label)}</span></label>`).join('')}
-      </div>
-    </div>
-    <div class="mfield full">
-      <label>Contact(s) / pilote(s)</label>
-      <div class="mchips" id="m-contacts">
-        ${contactOptions.map(o => `<label class="mchip"><input type="checkbox" value="${esc(o.value)}"${checkedRefList(a.id_contacts, o, CONT_ID_BY_LABEL, CONT_MAP, 'Contacts')}><span>${esc(o.label)}</span></label>`).join('')}
+        ${uniqList('id_structure').map(v => {
+          const checked = (Array.isArray(a.id_structure)?a.id_structure:[a.id_structure||'']).includes(v);
+          return `<label class="mchip"><input type="checkbox" value="${esc(v)}"${checked?' checked':''}><span>${esc(v)}</span></label>`;
+        }).join('')}
       </div>
     </div>
     <div class="mfield full">
       <label>Publics cibles</label>
       <div class="mchips" id="m-publics">
-        ${publicOptions.map(o => `<label class="mchip"><input type="checkbox" value="${esc(o.value)}"${checkedRefList(a.id_publics, o, PUBLIC_ID_BY_LABEL, PUBLIC_MAP, 'Publics')}><span>${esc(o.label)}</span></label>`).join('')}
+        ${uniqList('id_publics').map(v => {
+          const checked = (Array.isArray(a.id_publics)?a.id_publics:[a.id_publics||'']).includes(v);
+          return `<label class="mchip"><input type="checkbox" value="${esc(v)}"${checked?' checked':''}><span>${esc(v)}</span></label>`;
+        }).join('')}
       </div>
     </div>`;
 }
 
-function checkedValues(selector) {
-  return [...document.querySelectorAll(selector + ' input:checked')].map(c => c.value).sort((a,b)=>String(a).localeCompare(String(b), 'fr', {numeric:true}));
-}
-
-function readFormSnapshot() {
-  const byId = id => document.getElementById(id);
-  return {
-    titre:      byId('m-titre')?.value ?? '',
-    objectif:   byId('m-objectif')?.value ?? '',
-    code_gaia:  byId('m-gaia')?.value ?? '',
-    jours:      (byId('m-jours')?.value ?? '').trim().replace(',', '.'),
-    volet:      byId('m-volet')?.value ?? '',
-    axe:        byId('m-axe')?.value ?? '',
-    action:     byId('m-action-axe')?.value ?? '',
-    modalite:   byId('m-modal')?.value ?? '',
-    degre:      byId('m-degre')?.value ?? '',
-    debut:      byId('m-debut')?.value ?? '',
-    fin:        byId('m-fin')?.value ?? '',
-    structures: checkedValues('#m-structs'),
-    contacts:   checkedValues('#m-contacts'),
-    publics:    checkedValues('#m-publics'),
-  };
-}
-
-function sameArray(a, b) {
-  a = [...(a || [])].map(String).sort((x,y)=>x.localeCompare(y, 'fr', {numeric:true}));
-  b = [...(b || [])].map(String).sort((x,y)=>x.localeCompare(y, 'fr', {numeric:true}));
-  return a.length === b.length && a.every((v, i) => v === b[i]);
-}
-
-function changedField(name, snapshot) {
-  if (CURRENT_MODE === 'create' || !INITIAL_FORM) return true;
-  const a = INITIAL_FORM[name];
-  const b = snapshot[name];
-  if (Array.isArray(a) || Array.isArray(b)) return !sameArray(a, b);
-  return String(a ?? '') !== String(b ?? '');
-}
-
 // ── Enregistrer les modifications dans Grist ──────────────────────────────
 async function saveRecord() {
-  if (!CURRENT_ACTION && CURRENT_MODE !== 'create') return;
+  if (!CURRENT_ACTION) return;
   const btn = document.getElementById('btn-save');
   const msg = document.getElementById('msg-save');
   btn.disabled = true;
-  msg.textContent = CURRENT_MODE === 'create' ? 'Inscription…' : 'Enregistrement…';
+  msg.textContent = 'Enregistrement…';
   msg.className = 'msg-save';
 
-  const snap = readFormSnapshot();
+  // Lire les valeurs du formulaire
+  const structs = [...document.querySelectorAll('#m-structs input:checked')].map(c=>c.value);
+  const publics  = [...document.querySelectorAll('#m-publics input:checked')].map(c=>c.value);
 
-  const joursRaw = snap.jours;
-  let joursVal = null;
-  if (joursRaw !== '') {
-    joursVal = Number(joursRaw);
-    if (!Number.isFinite(joursVal) || joursVal <= 0) {
-      msg.textContent = '✗ Le nombre de journées stagiaires doit être un nombre positif.';
-      msg.className = 'msg-save err';
-      btn.disabled = false;
-      return;
-    }
-  }
+  const degreVal = document.getElementById('m-degre').value;
+  const debutVal = document.getElementById('m-debut').value;
+  const finVal   = document.getElementById('m-fin').value;
 
-  const toTs = v => v ? Math.floor(new Date(v + 'T12:00:00').getTime()/1000) : null;
+  const toTs = v => v ? Math.floor(new Date(v).getTime()/1000) : null;
 
-  // En création, tous les champs sont envoyés.
-  // En édition, seuls les champs effectivement modifiés sont envoyés.
-  // Cela évite de réécrire involontairement des colonnes de référence avec des valeurs d'affichage.
-  const fields = {};
-  const put = (name, value, key=name) => {
-    if (CURRENT_MODE === 'create' || changedField(key, snap)) fields[name] = value;
+  const fields = {
+    titre:               document.getElementById('m-titre').value.trim(),
+    objectif:            document.getElementById('m-objectif').value.trim(),
+    code_gaia:           document.getElementById('m-gaia').value.trim(),
+    journees_stagiaires: parseFloat(document.getElementById('m-jours').value)||null,
+    id_volet:            document.getElementById('m-volet').value,
+    id_axe:              document.getElementById('m-axe').value,
+    id_modalite:         document.getElementById('m-modal').value,
+    id_structure:        structs,
+    id_publics:          publics,
+    Degre:               degreVal ? (DEGRE_LABEL_TO_ID[degreVal] ? ['L', Number(DEGRE_LABEL_TO_ID[degreVal])] : [degreVal]) : (Object.keys(DEGRE_LABEL_TO_ID).length ? ['L'] : []),
+    date_debut:          toTs(debutVal),
+    date_fin:            toTs(finVal),
   };
 
-  put('titre',               snap.titre.trim(), 'titre');
-  put('objectif',            snap.objectif.trim(), 'objectif');
-  put('code_gaia',           snap.code_gaia.trim(), 'code_gaia');
-  put('journees_stagiaires', joursRaw === '' ? null : joursVal, 'jours');
-  put('id_volet',            makeRef(snap.volet, VOLET_ID_BY_LABEL, VOLET_MAP, 'Volets'), 'volet');
-  put('id_axe',              makeRef(snap.axe, AXE_ID_BY_LABEL, AXE_MAP, 'Axes'), 'axe');
-  const modalRef = makeRef(snap.modalite, MODAL_ID_BY_LABEL, MODAL_MAP, 'Modalites');
-  if (CURRENT_MODE === 'create' || changedField('modalite', snap) || shouldRepairInvalidRef(getModalite(CURRENT_ACTION), snap.modalite, MODAL_ID_BY_LABEL, MODAL_MAP, 'Modalites')) {
-    fields[MODAL_COL] = snap.modalite ? modalRef : null;
-  }
-  put('id_structure',        makeRefList(snap.structures, STRUCT_ID_BY_LABEL, STRUCT_MAP, 'Structures'), 'structures');
-  put('id_contacts',         makeRefList(snap.contacts, CONT_ID_BY_LABEL, CONT_MAP, 'Contacts'), 'contacts');
-  put('id_publics',          makeRefList(snap.publics, PUBLIC_ID_BY_LABEL, PUBLIC_MAP, 'Publics'), 'publics');
-  put('Degre',               makeRefList(snap.degre ? [snap.degre] : [], DEGRE_ID_BY_LABEL, DEGRE_MAP, ''), 'degre');
-  put('date_debut',          toTs(snap.debut), 'debut');
-  put('date_fin',            toTs(snap.fin), 'fin');
-
-  const actionRef = makeRef(snap.action, {}, ACTION_AXE_MAP, 'Actions_axes');
-  if (CURRENT_MODE === 'create' || changedField('action', snap)) fields[ACTION_COL] = actionRef;
-
-  if (CURRENT_MODE !== 'create' && Object.keys(fields).length === 0) {
-    msg.textContent = 'Aucune modification à enregistrer.';
-    msg.className = 'msg-save';
-    btn.disabled = false;
-    return;
-  }
-
-  console.debug('[widget-cartes] Champs envoyés à Grist', fields);
+  // Nettoyer les nulls
+  Object.keys(fields).forEach(k => { if(fields[k]===null) delete fields[k]; });
 
   try {
-    if (CURRENT_MODE === 'create') {
-      const result = await grist.docApi.applyUserActions([
-        ['AddRecord', 'Actions_formation', null, fields]
-      ]);
-      const newId = Array.isArray(result) ? result[0] : null;
-      if (newId) {
-        ALL.unshift({ id: newId, ...fields });
-        selectedId = newId;
-      }
-      msg.textContent = '✓ Action inscrite';
-    } else {
-      await grist.docApi.applyUserActions([
-        ['UpdateRecord', 'Actions_formation', CURRENT_ACTION.id, fields]
-      ]);
-      const idx = ALL.findIndex(a => a.id === CURRENT_ACTION.id);
-      if (idx >= 0) Object.assign(ALL[idx], fields);
-      CURRENT_ACTION = ALL.find(a => a.id === CURRENT_ACTION.id);
-      msg.textContent = '✓ Enregistré';
-    }
+    await grist.docApi.applyUserActions([
+      ['UpdateRecord', 'Actions_formation', CURRENT_ACTION.id, fields]
+    ]);
+    // Mettre à jour localement
+    const idx = ALL.findIndex(a => a.id === CURRENT_ACTION.id);
+    if (idx >= 0) Object.assign(ALL[idx], fields);
+    CURRENT_ACTION = ALL.find(a => a.id === CURRENT_ACTION.id);
 
+    msg.textContent = '✓ Enregistré';
     msg.className = 'msg-save ok';
     applyFilters();  // rafraîchir les cartes
     setTimeout(() => {
       msg.textContent = '';
-      closeModal();
+      document.getElementById('overlay').classList.add('hidden');
     }, 1200);
   } catch(e) {
     msg.textContent = '✗ Erreur : ' + e.message;
@@ -1570,19 +933,18 @@ function render() {
   }
 
   const html = FILTERED.map((a, i) => {
-    const axeLib   = refLabel(a.id_axe, AXE_MAP, AXE_ID_BY_LABEL, 'Axes');
-    const voletLib = refLabel(a.id_volet, VOLET_MAP, VOLET_ID_BY_LABEL, 'Volets');
-    const modalLib = refLabel(getModalite(a), MODAL_MAP, MODAL_ID_BY_LABEL, 'Modalites');
+    // Grist envoie directement les textes résolus
+    const axeLib   = String(a.id_axe    ||'');
+    const voletLib = String(a.id_volet  ||'');
+    const modalLib = String(a.id_modalite||'');
     const num      = axeNum(axeLib);
     const band     = BANDS[num] || '';
-    const structs  = refListLabels(a.id_structure, STRUCT_MAP, STRUCT_ID_BY_LABEL, 'Structures');
-    const publics  = publicValues(a);
-    const contacts = contactValues(a);
-    const actionAxe = actionAxeDisplay(getActionAxe(a));
+    const structs  = Array.isArray(a.id_structure) ? a.id_structure : (a.id_structure ? [a.id_structure] : []);
+    const contacts = Array.isArray(a.id_contacts)  ? a.id_contacts  : (a.id_contacts  ? [a.id_contacts]  : []);
     const objectif = (a.objectif||'').replace(/\n/g,' ').trim();
     const periode  = a.periode || '';
     const gaia     = a.code_gaia || '';
-    const degre    = refListLabels(a.Degre, DEGRE_MAP, DEGRE_ID_BY_LABEL, '').join(', ');
+    const degre    = degreLabelFromValue(a.Degre);
     const delay    = Math.min(i * 18, 400);
     const isSel    = a.id === selectedId;
 
@@ -1615,12 +977,6 @@ function render() {
             <div class="meta-value"><span class="tag tag-axe">${esc(axeLib)}</span></div>
           </div>` : ''}
 
-          ${actionAxe ? `
-          <div class="meta-row">
-            <span class="meta-label">Action</span>
-            <div class="meta-value"><span class="tag tag-axe">${esc(actionAxe)}</span></div>
-          </div>` : ''}
-
           ${structs.length ? `
           <div class="meta-row">
             <span class="meta-label">Structure</span>
@@ -1639,14 +995,6 @@ function render() {
           <div class="meta-row">
             <span class="meta-label">Modalité</span>
             <div class="meta-value"><span class="tag tag-modal">${esc(modalLib)}</span></div>
-          </div>` : ''}
-
-          ${publics.length ? `
-          <div class="meta-row">
-            <span class="meta-label">Publics</span>
-            <div class="meta-value tags">
-              ${publics.map(p=>`<span class="tag tag-public">${esc(p)}</span>`).join('')}
-            </div>
           </div>` : ''}
 
           ${contacts.length ? `
