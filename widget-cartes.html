@@ -544,6 +544,7 @@ html, body {
 // ── Données ──────────────────────────────────────────────────────────────
 let ALL = [], FILTERED = [];
 let VOLET_MAP = {}, AXE_MAP = {}, ACTION_AXE_MAP = {}, STRUCT_MAP = {}, MODAL_MAP = {}, CONT_MAP = {}, PUBLIC_MAP = {};
+let DEGRE_ID_TO_LABEL = {}, DEGRE_LABEL_TO_ID = {};
 let ACTION_AXE_OPTIONS = [];
 let ACTION_COL = 'id_action_referentiel';
 let selectedId = null;
@@ -586,6 +587,20 @@ function resolveList(ids, map) {
 
 function publicLabelFromRow(r) {
   return firstText(r, ['libelle', 'Libelle', 'Libellé', 'label', 'Label', 'nom', 'Nom']);
+}
+
+function degreLabelFromRow(r) {
+  return firstText(r, ['nom_deg', 'Nom_deg', 'NOM_DEG', 'Degres', 'Degrés', 'libelle', 'Libelle', 'Libellé', 'label', 'Label', 'nom', 'Nom']);
+}
+
+function degreLabelFromValue(v) {
+  const vals = asList(v);
+  if (!vals.length) return '';
+  const labels = vals.map(x => {
+    const key = String(x || '').trim();
+    return DEGRE_ID_TO_LABEL[x] || DEGRE_ID_TO_LABEL[key] || key;
+  }).filter(Boolean);
+  return labels.join(', ');
 }
 
 function publicValue(v) {
@@ -801,7 +816,7 @@ grist.onRecords(async (records) => {
       grist.docApi.fetchTable('Modalites'),
       grist.docApi.fetchTable('Contacts'),
       grist.docApi.fetchTable('Publics').catch(() => ({id:[], libelle:[], Libelle:[], 'Libellé':[]})),
-      grist.docApi.fetchTable('Degrés').catch(() => grist.docApi.fetchTable('Degres').catch(() => ({id:[], libelle:[]}))),
+      grist.docApi.fetchTable('Degres').catch(() => ({id:[], nom_deg:[]})),
     ]);
 
     const toRows = t => (t.id||[]).map((id,i) => {
@@ -838,9 +853,15 @@ grist.onRecords(async (records) => {
     window.CONTACT_VALUES = [...new Set(cRows.map(contactLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
     window.PUBLIC_VALUES = [...new Set(pRows.map(publicLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
 
-    // Degrés : stocker les valeurs pour le select
-    window.DEGRE_VALUES = dRows.map(r => r.libelle || r.Libelle || Object.values(r).find(v=>typeof v==='string'&&v) || '').filter(Boolean);
-    if (!window.DEGRE_VALUES.length) window.DEGRE_VALUES = ['1er degré', '2nd degré'];
+    // Degrés : table technique attendue = Degres ; colonne de libellé attendue = nom_deg
+    DEGRE_ID_TO_LABEL = Object.fromEntries(dRows
+      .map(r => [r.id, degreLabelFromRow(r)])
+      .filter(([,v]) => v));
+    DEGRE_LABEL_TO_ID = Object.fromEntries(dRows
+      .map(r => [degreLabelFromRow(r), r.id])
+      .filter(([k]) => k));
+    window.DEGRE_VALUES = [...new Set(dRows.map(degreLabelFromRow).filter(Boolean))]
+      .sort((a,b)=>a.localeCompare(b,'fr'));
 
     ALL = records.map(r => ({ id: r.id, ...r }));
     ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'], ACTION_COL);
@@ -1064,8 +1085,8 @@ function buildModalForm(a) {
         <label>Degré</label>
         <select id="m-degre">
           <option value="">—</option>
-          ${(window.DEGRE_VALUES||['1er degré','2nd degré']).map(v=>{
-            const cur = Array.isArray(a.Degre)?a.Degre[0]:(a.Degre||'');
+          ${(window.DEGRE_VALUES||[]).map(v=>{
+            const cur = degreLabelFromValue(a.Degre);
             return `<option value="${esc(v)}"${selected(cur, v)}>${esc(v)}</option>`;
           }).join('')}
         </select>
@@ -1187,7 +1208,7 @@ async function saveRecord() {
     id_structure:        structs,
     id_contacts:         contacts,
     id_publics:          publics,
-    Degre:               degreVal ? [degreVal] : [],
+    Degre:               degreVal ? (DEGRE_LABEL_TO_ID[degreVal] ? ['L', Number(DEGRE_LABEL_TO_ID[degreVal])] : [degreVal]) : (Object.keys(DEGRE_LABEL_TO_ID).length ? ['L'] : []),
     date_debut:          toTs(debutVal),
     date_fin:            toTs(finVal),
   };
@@ -1257,7 +1278,7 @@ function render() {
     const objectif = (a.objectif||'').replace(/\n/g,' ').trim();
     const periode  = a.periode || '';
     const gaia     = a.code_gaia || '';
-    const degre    = Array.isArray(a.Degre) ? a.Degre.join(', ') : (a.Degre||'');
+    const degre    = degreLabelFromValue(a.Degre);
     const delay    = Math.min(i * 18, 400);
     const isSel    = a.id === selectedId;
 
