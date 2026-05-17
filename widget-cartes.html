@@ -280,6 +280,151 @@ html, body {
 .tag-axe     { background: rgba(27,58,107,.08); color: var(--navy); }
 .tag-modal   { background: rgba(245,160,168,.2); color: #8a2030; }
 
+/* ── MODALE ───────────────────────────────────────── */
+.overlay {
+  position: fixed; inset: 0;
+  background: rgba(27,58,107,.45);
+  backdrop-filter: blur(3px);
+  z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+  animation: fadeOverlay .2s ease;
+}
+@keyframes fadeOverlay { from{opacity:0} to{opacity:1} }
+.overlay.hidden { display: none; }
+
+.modal {
+  background: var(--white);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 680px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 64px rgba(27,58,107,.25);
+  animation: slideUp .25s cubic-bezier(.34,1.4,.64,1);
+}
+@keyframes slideUp { from{transform:translateY(20px);opacity:0} to{transform:none;opacity:1} }
+
+.modal-head {
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.modal-band {
+  width: 4px; min-height: 40px; border-radius: 2px; flex-shrink: 0; margin-top: 2px;
+}
+.modal-head-text { flex: 1; }
+.modal-head-text h2 {
+  font-family: 'Fraunces', serif;
+  font-size: 16px; font-weight: 500;
+  color: var(--ink); line-height: 1.35;
+}
+.modal-head-text .modal-meta {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px; color: var(--ink3);
+  margin-top: 4px; letter-spacing: .05em;
+}
+.btn-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--ink3); font-size: 18px; line-height: 1;
+  padding: 4px; border-radius: 4px; transition: all .12s;
+}
+.btn-close:hover { background: var(--bg); color: var(--ink); }
+
+.modal-body {
+  overflow-y: auto;
+  padding: 18px 22px;
+  display: grid;
+  gap: 14px;
+}
+.modal-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+.mfield { display: flex; flex-direction: column; gap: 5px; }
+.mfield label {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px; font-weight: 500;
+  color: var(--ink3); text-transform: uppercase; letter-spacing: .08em;
+}
+.mfield input, .mfield select, .mfield textarea {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px; color: var(--ink);
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  outline: none;
+  transition: border-color .12s, background .12s;
+  width: 100%;
+}
+.mfield input:focus, .mfield select:focus, .mfield textarea:focus {
+  border-color: var(--navy); background: var(--white);
+}
+.mfield select {
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%238a8070' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 8px center; padding-right: 26px;
+}
+.mfield textarea { resize: vertical; min-height: 90px; line-height: 1.6; }
+.mfield.full { grid-column: 1/-1; }
+
+/* Multi-select chips dans modale */
+.mchips {
+  border: 1.5px solid var(--border);
+  border-radius: 6px; background: var(--bg);
+  padding: 6px; max-height: 130px; overflow-y: auto;
+  display: flex; flex-wrap: wrap; gap: 4px;
+}
+.mchip {
+  display: flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: 4px; cursor: pointer;
+  font-size: 11px; color: var(--ink2);
+  border: 1.5px solid transparent;
+  transition: all .1s;
+}
+.mchip:hover { background: var(--navy-l); }
+.mchip input { display: none; }
+.mchip input:checked + span {
+  color: var(--navy); font-weight: 600;
+}
+.mchip:has(input:checked) {
+  background: var(--navy-l);
+  border-color: var(--navy);
+}
+
+.modal-foot {
+  padding: 14px 22px;
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+  background: var(--bg); border-radius: 0 0 14px 14px;
+}
+.modal-foot .spacer { flex: 1; }
+.msg-save {
+  font-size: 11px; color: var(--ink3);
+  font-family: 'DM Mono', monospace;
+}
+.msg-save.ok { color: #2a7a4a; }
+.msg-save.err { color: var(--strawberry); }
+
+.btn-cancel {
+  font-family: 'DM Sans', sans-serif; font-size: 12px;
+  background: transparent; border: 1.5px solid var(--border);
+  color: var(--ink3); padding: 8px 16px; border-radius: 6px; cursor: pointer;
+  transition: all .12s;
+}
+.btn-cancel:hover { border-color: var(--strawberry); color: var(--strawberry); }
+.btn-save {
+  font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600;
+  background: var(--navy); color: #fff;
+  border: none; padding: 8px 20px; border-radius: 6px; cursor: pointer;
+  transition: all .12s;
+}
+.btn-save:hover { background: #0d2a52; transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(27,58,107,.25); }
+.btn-save:disabled { background: var(--ink3); cursor: not-allowed; transform: none; }
+
 /* ── ÉTATS ────────────────────────────────────────── */
 .empty {
   grid-column: 1/-1;
@@ -343,6 +488,27 @@ html, body {
 </div>
 
 <div id="loader"><div class="spinner"></div><p>Chargement du catalogue…</p></div>
+
+<!-- Modale d'édition -->
+<div class="overlay hidden" id="overlay" onclick="closeModal(event)">
+  <div class="modal" id="modal">
+    <div class="modal-head">
+      <div class="modal-band" id="modal-band"></div>
+      <div class="modal-head-text">
+        <h2 id="modal-title">–</h2>
+        <div class="modal-meta" id="modal-meta"></div>
+      </div>
+      <button class="btn-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-foot">
+      <span class="msg-save" id="msg-save"></span>
+      <span class="spacer"></span>
+      <button class="btn-cancel" onclick="closeModal()">Annuler</button>
+      <button class="btn-save" id="btn-save" onclick="saveRecord()">Enregistrer</button>
+    </div>
+  </div>
+</div>
 
 <script>
 // ── Données ──────────────────────────────────────────────────────────────
@@ -497,14 +663,174 @@ function resetFilters() {
   applyFilters();
 }
 
-// ── Clic sur une carte → sélection dans Grist ─────────────────────────────
+// ── Clic sur une carte → ouvrir la modale d'édition ─────────────────────
 function selectCard(id) {
   selectedId = id;
   document.querySelectorAll('.card').forEach(el =>
     el.classList.toggle('selected', +el.dataset.id === id));
-  // Sélectionner la ligne dans Grist (toutes les méthodes connues)
-  try { grist.setCursorPos({rowId: id}); }    catch(e) {}
-  try { grist.setSelectedRows([id]); }        catch(e) {}
+  const action = ALL.find(a => a.id === id);
+  if (action) openModal(action);
+}
+
+// ── MODALE ────────────────────────────────────────────────────────────────
+let CURRENT_ACTION = null;
+let REF_LISTS = {};  // volets, axes, structs, modals, contacts, publics
+
+function openModal(action) {
+  CURRENT_ACTION = action;
+
+  // Bande de couleur
+  const axeLib = String(action.id_axe||'');
+  const num    = axeNum(axeLib);
+  document.getElementById('modal-band').className =
+    'modal-band ' + (BANDS[num]||'').replace('band-','band-');
+
+  // Titre et méta
+  document.getElementById('modal-title').textContent = action.titre||'Sans titre';
+  document.getElementById('modal-meta').textContent  =
+    [action.id_volet, action.id_axe, action.periode].filter(Boolean).join(' · ');
+
+  // Construire le formulaire
+  buildModalForm(action);
+
+  // Afficher
+  document.getElementById('overlay').classList.remove('hidden');
+  document.getElementById('msg-save').textContent = '';
+}
+
+function closeModal(e) {
+  if (e && e.target !== document.getElementById('overlay')) return;
+  document.getElementById('overlay').classList.add('hidden');
+  CURRENT_ACTION = null;
+}
+
+// Construire les champs du formulaire modal
+function buildModalForm(a) {
+  const body = document.getElementById('modal-body');
+
+  // Valeurs uniques pour les selects (depuis les données)
+  const uniq = field => [...new Set(ALL.map(r=>String(r[field]||'')).filter(Boolean))].sort();
+  const uniqList = field => [...new Set(ALL.flatMap(r => {
+    const v = r[field]; return Array.isArray(v)?v:(v?[v]:[]);
+  }).map(String).filter(Boolean))].sort();
+
+  body.innerHTML = `
+    <div class="mfield full">
+      <label>Titre</label>
+      <input type="text" id="m-titre" value="${esc(a.titre||'')}">
+    </div>
+    <div class="mfield full">
+      <label>Objectif</label>
+      <textarea id="m-objectif" rows="5">${esc(a.objectif||'')}</textarea>
+    </div>
+    <div class="modal-row">
+      <div class="mfield">
+        <label>Volet</label>
+        <select id="m-volet">
+          ${uniq('id_volet').map(v=>`<option${v===String(a.id_volet||'')?'selected':''}>${esc(v)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="mfield">
+        <label>Axe</label>
+        <select id="m-axe">
+          ${uniq('id_axe').map(v=>`<option${v===String(a.id_axe||'')?'selected':''}>${esc(v)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="modal-row">
+      <div class="mfield">
+        <label>Modalité</label>
+        <select id="m-modal">
+          ${uniq('id_modalite').map(v=>`<option${v===String(a.id_modalite||'')?'selected':''}>${esc(v)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="mfield">
+        <label>Période</label>
+        <input type="text" id="m-periode" value="${esc(a.periode||'')}">
+      </div>
+    </div>
+    <div class="modal-row">
+      <div class="mfield">
+        <label>Code GAIA</label>
+        <input type="text" id="m-gaia" value="${esc(a.code_gaia||'')}">
+      </div>
+      <div class="mfield">
+        <label>Journées stagiaires</label>
+        <input type="number" id="m-jours" step="0.5" value="${a.journees_stagiaires||''}">
+      </div>
+    </div>
+    <div class="mfield full">
+      <label>Structure(s) porteuse(s)</label>
+      <div class="mchips" id="m-structs">
+        ${uniqList('id_structure').map(v => {
+          const checked = (Array.isArray(a.id_structure)?a.id_structure:[a.id_structure||'']).includes(v);
+          return `<label class="mchip"><input type="checkbox" value="${esc(v)}"${checked?' checked':''}><span>${esc(v)}</span></label>`;
+        }).join('')}
+      </div>
+    </div>
+    <div class="mfield full">
+      <label>Publics cibles</label>
+      <div class="mchips" id="m-publics">
+        ${uniqList('id_publics').map(v => {
+          const checked = (Array.isArray(a.id_publics)?a.id_publics:[a.id_publics||'']).includes(v);
+          return `<label class="mchip"><input type="checkbox" value="${esc(v)}"${checked?' checked':''}><span>${esc(v)}</span></label>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
+// ── Enregistrer les modifications dans Grist ──────────────────────────────
+async function saveRecord() {
+  if (!CURRENT_ACTION) return;
+  const btn = document.getElementById('btn-save');
+  const msg = document.getElementById('msg-save');
+  btn.disabled = true;
+  msg.textContent = 'Enregistrement…';
+  msg.className = 'msg-save';
+
+  // Lire les valeurs du formulaire
+  const structs = [...document.querySelectorAll('#m-structs input:checked')].map(c=>c.value);
+  const publics  = [...document.querySelectorAll('#m-publics input:checked')].map(c=>c.value);
+
+  const fields = {
+    titre:               document.getElementById('m-titre').value.trim(),
+    objectif:            document.getElementById('m-objectif').value.trim(),
+    code_gaia:           document.getElementById('m-gaia').value.trim(),
+    periode:             document.getElementById('m-periode').value.trim(),
+    journees_stagiaires: parseFloat(document.getElementById('m-jours').value)||null,
+    id_volet:            document.getElementById('m-volet').value,
+    id_axe:              document.getElementById('m-axe').value,
+    id_modalite:         document.getElementById('m-modal').value,
+    id_structure:        structs,
+    id_publics:          publics,
+  };
+
+  // Nettoyer les nulls
+  Object.keys(fields).forEach(k => { if(fields[k]===null) delete fields[k]; });
+
+  try {
+    await grist.docApi.applyUserActions([
+      ['UpdateRecord', 'Actions_formation', CURRENT_ACTION.id, fields]
+    ]);
+    // Mettre à jour localement
+    const idx = ALL.findIndex(a => a.id === CURRENT_ACTION.id);
+    if (idx >= 0) Object.assign(ALL[idx], fields);
+    CURRENT_ACTION = ALL.find(a => a.id === CURRENT_ACTION.id);
+
+    msg.textContent = '✓ Enregistré';
+    msg.className = 'msg-save ok';
+    applyFilters();  // rafraîchir les cartes
+    setTimeout(() => {
+      msg.textContent = '';
+      document.getElementById('overlay').classList.add('hidden');
+    }, 1200);
+  } catch(e) {
+    msg.textContent = '✗ Erreur : ' + e.message;
+    msg.className = 'msg-save err';
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ── Rendu ──────────────────────────────────────────────────────────────────
@@ -598,6 +924,8 @@ function render() {
 function showLoader(v) {
   document.getElementById('loader').classList.toggle('hidden', !v);
 }
+// Fermer la modale avec Échap
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 </script>
 </body>
 </html>
