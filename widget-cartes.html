@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF</title>
-<!-- Version v8 : sécurisation écriture Modalité -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -507,7 +506,6 @@ html, body {
   <div class="tb-sel"><select id="f-axe"    onchange="applyFilters()"><option value="">Tous les axes</option></select></div>
   <div class="tb-sel"><select id="f-volet"  onchange="applyFilters()"><option value="">Tous les volets</option></select></div>
   <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Toutes les structures</option></select></div>
-  <div class="tb-sel"><select id="f-public" onchange="applyFilters()"><option value="">Tous les publics</option></select></div>
   <div class="tb-sel"><select id="f-modal"  onchange="applyFilters()"><option value="">Toutes les modalités</option></select></div>
   <button class="btn-reset" onclick="resetFilters()" title="Réinitialiser">✕</button>
   <button class="btn-new" onclick="openCreateModal()">+ Inscrire une action</button>
@@ -545,12 +543,9 @@ html, body {
 <script>
 // ── Données ──────────────────────────────────────────────────────────────
 let ALL = [], FILTERED = [];
-let VOLET_MAP = {}, AXE_MAP = {}, ACTION_AXE_MAP = {}, STRUCT_MAP = {}, MODAL_MAP = {}, CONT_MAP = {}, PUBLIC_MAP = {}, DEGRE_MAP = {};
-let VOLET_ID_BY_LABEL = {}, AXE_ID_BY_LABEL = {}, STRUCT_ID_BY_LABEL = {}, MODAL_ID_BY_LABEL = {}, CONT_ID_BY_LABEL = {}, PUBLIC_ID_BY_LABEL = {}, DEGRE_ID_BY_LABEL = {};
+let VOLET_MAP = {}, AXE_MAP = {}, ACTION_AXE_MAP = {}, STRUCT_MAP = {}, MODAL_MAP = {}, CONT_MAP = {}, PUBLIC_MAP = {};
 let ACTION_AXE_OPTIONS = [];
-let VOLET_OPTIONS = [], AXE_OPTIONS = [], STRUCT_OPTIONS = [], MODAL_OPTIONS = [], CONTACT_OPTIONS = [], PUBLIC_OPTIONS = [], DEGRE_OPTIONS = [];
 let ACTION_COL = 'id_action_referentiel';
-let MODAL_COL = 'id_modalite';
 let selectedId = null;
 
 const ROMAN = {I:1,II:2,III:3,IV:4,V:5,VI:6,VII:7,VIII:8};
@@ -590,24 +585,7 @@ function resolveList(ids, map) {
 }
 
 function publicLabelFromRow(r) {
-  return firstText(r, ['Libellé', 'libelle', 'Libelle', 'label', 'Label', 'nom', 'Nom']);
-}
-
-function buildPublicMap(rows) {
-  const entries = [];
-  const add = (k, label) => {
-    const key = String(k ?? '').trim();
-    if (key && label) entries.push([key, label]);
-  };
-  rows.forEach(r => {
-    const label = publicLabelFromRow(r);
-    if (!label) return;
-    add(r.id, label);
-    add(`Publics[${r.id}]`, label);
-    add(`R,Publics,${r.id}`, label);
-    add(label, label);
-  });
-  return Object.fromEntries(entries);
+  return firstText(r, ['libelle', 'Libelle', 'Libellé', 'label', 'Label', 'nom', 'Nom']);
 }
 
 function publicValue(v) {
@@ -637,105 +615,6 @@ function contactValues(action) {
   return asList(action && (action.id_contacts || action.contacts_pilotes || action.Contacts_pilotes || action['Contacts / pilotes']))
     .map(contactValue)
     .filter(Boolean);
-}
-
-
-
-function buildIdByLabel(rows, labelFn, extraAliasesFn) {
-  const out = {};
-  (rows || []).forEach(r => {
-    const id = String(r.id ?? '').trim();
-    const label = String(labelFn(r) || '').trim();
-    if (!id || !label) return;
-    out[label] = id;
-    if (extraAliasesFn) {
-      (extraAliasesFn(r) || []).forEach(alias => {
-        const a = String(alias || '').trim();
-        if (a) out[a] = id;
-      });
-    }
-  });
-  return out;
-}
-
-function buildOptions(rows, labelFn) {
-  return (rows || [])
-    .map(r => ({ value: String(r.id ?? '').trim(), label: String(labelFn(r) || '').trim() }))
-    .filter(o => o.value && o.label)
-    .sort((a,b) => a.label.localeCompare(b.label, 'fr', {numeric:true}));
-}
-
-function rawRefId(value, tableName) {
-  if (value === null || value === undefined || value === '') return '';
-  const fromKnownRef = tableName ? refRowIdFromValue(value, tableName) : '';
-  if (fromKnownRef) return fromKnownRef;
-  if (Array.isArray(value)) {
-    const arr = asList(value);
-    return arr.length === 1 ? rawRefId(arr[0], tableName) : '';
-  }
-  if (typeof value === 'object') {
-    const row = value.rowId ?? value.row_id ?? value.recordId ?? value.record_id ?? value.ref ?? value.value ?? value.id;
-    if (row !== undefined && row !== null && /^\d+$/.test(String(row))) return String(row);
-    return '';
-  }
-  const s = String(value).trim();
-  return /^\d+$/.test(s) ? s : '';
-}
-
-function cleanInvalidRefText(value) {
-  return String(value ?? '')
-    .trim()
-    .replace(/^#\s*Invalid\s+Ref\s*:\s*/i, '')
-    .replace(/^#\s*INVALID\s+REF\s*:\s*/i, '')
-    .trim();
-}
-
-function refId(value, idByLabel, map, tableName) {
-  const raw = rawRefId(value, tableName);
-  if (raw && (!map || map[raw])) return raw;
-  const key = cleanInvalidRefText(value);
-  return (idByLabel && idByLabel[key]) || (raw || '');
-}
-
-function refLabel(value, map, idByLabel, tableName) {
-  if (value === null || value === undefined || value === '') return '';
-  const id = refId(value, idByLabel, map, tableName);
-  if (id && map && map[id]) return map[id];
-  const key = cleanInvalidRefText(value);
-  return (map && (map[key] || map[value])) || key;
-}
-
-function refListLabels(value, map, idByLabel, tableName) {
-  return asList(value).map(v => refLabel(v, map, idByLabel, tableName)).filter(Boolean);
-}
-
-function makeRef(value, idByLabel, map, tableName) {
-  const id = refId(value, idByLabel, map, tableName);
-  if (!id) return null;
-  const n = Number(id);
-  // Format explicite Grist pour une colonne Reference.
-  // Évite que certaines références simples soient écrites comme des entiers bruts non résolus.
-  return tableName ? ['R', tableName, n] : n;
-}
-
-function makeRefList(values, idByLabel, map, tableName) {
-  const ids = (values || [])
-    .map(v => refId(v, idByLabel, map, tableName))
-    .filter(Boolean)
-    .map(v => Number(v));
-  return ['L', ...Array.from(new Set(ids))];
-}
-
-function selectedRef(current, opt, idByLabel, map, tableName) {
-  const curId = refId(current, idByLabel, map, tableName);
-  const curLabel = refLabel(current, map, idByLabel, tableName);
-  return (curId === String(opt.value) || curLabel === opt.label) ? ' selected' : '';
-}
-
-function checkedRefList(currentValues, opt, idByLabel, map, tableName) {
-  const ids = asList(currentValues).map(v => refId(v, idByLabel, map, tableName)).filter(Boolean);
-  const labels = asList(currentValues).map(v => refLabel(v, map, idByLabel, tableName)).filter(Boolean);
-  return (ids.includes(String(opt.value)) || labels.includes(opt.label)) ? ' checked' : '';
 }
 
 function firstRowText(row, keys) {
@@ -895,27 +774,6 @@ function getActionAxe(action) {
   return '';
 }
 
-function getModalite(action) {
-  if (!action) return '';
-  const keys = [MODAL_COL, 'id_modalite', 'id_modalité', 'id_modalites', 'modalite', 'Modalite', 'Modalité', 'Modalit_', 'Modalite_', 'Modalit__'];
-  for (const k of keys) {
-    if (Object.prototype.hasOwnProperty.call(action, k) && action[k] !== undefined && action[k] !== null && action[k] !== '') return action[k];
-  }
-  return '';
-}
-
-function shouldRepairInvalidRef(currentValue, selectedValue, idByLabel, map, tableName) {
-  // Ne pas réécrire automatiquement une référence saine simplement parce que Grist
-  // l'envoie au widget sous forme de libellé affiché (ex. « Hybride »).
-  // On ne force la réparation que si la valeur reçue porte explicitement la marque
-  // d'une référence invalide. Sinon, modifier les publics peut dégrader Modalité.
-  const text = String(currentValue ?? '').trim();
-  if (!/^#\s*Invalid\s+Ref\s*:/i.test(text) && !/^#\s*INVALID\s+REF\s*:/i.test(text)) return false;
-  const selectedId = refId(selectedValue, idByLabel, map, tableName);
-  const currentId = refId(currentValue, idByLabel, map, tableName);
-  return Boolean(selectedId && currentId && selectedId === currentId);
-}
-
 function detectExistingColumn(records, candidates, fallback) {
   const keys = new Set();
   (records || []).slice(0, 5).forEach(r => Object.keys(r || {}).forEach(k => keys.add(k)));
@@ -961,50 +819,31 @@ grist.onRecords(async (records) => {
     const pRows = toRows(publics);
     const dRows = toRows(degres);
 
-    const simpleLabel = r => r.libelle || r.Libelle || r['Libellé'] || '';
-    const structLabel = r => r.code || r.Code || r.libelle || r.Libelle || r['Libellé'] || '';
-
-    VOLET_MAP  = Object.fromEntries(vRows.map(r => [String(r.id), simpleLabel(r)]));
-    AXE_MAP    = Object.fromEntries(aRows.map(r => [String(r.id), simpleLabel(r)]));
+    VOLET_MAP  = Object.fromEntries(vRows.map(r => [r.id, r.libelle || r.Libelle || r['Libellé'] || '']));
+    AXE_MAP    = Object.fromEntries(aRows.map(r => [r.id, r.libelle || r.Libelle || r['Libellé'] || '']));
     ACTION_AXE_MAP = buildActionAxeMap(aaRows);
     ACTION_AXE_OPTIONS = aaRows
       .map(r => ({ value: actionAxeValueFromRow(r), label: actionAxeLabelFromRow(r) }))
       .filter(o => o.value && o.label)
-      .sort((a,b) => a.label.localeCompare(b.label, 'fr', {numeric:true}));
-    STRUCT_MAP = Object.fromEntries(sRows.map(r => [String(r.id), structLabel(r)]));
-    MODAL_MAP  = Object.fromEntries(mRows.map(r => [String(r.id), simpleLabel(r)]));
-    CONT_MAP   = Object.fromEntries(cRows.map(r => [String(r.id), contactLabelFromRow(r)]).filter(([,v]) => v));
-    PUBLIC_MAP = buildPublicMap(pRows);
-    DEGRE_MAP  = Object.fromEntries(dRows.map(r => [String(r.id), simpleLabel(r)]).filter(([,v]) => v));
+      .sort((a,b) => String(a.value).localeCompare(String(b.value), 'fr', {numeric:true}));
+    STRUCT_MAP = Object.fromEntries(sRows.map(r => [r.id, r.code || r.Code || r.libelle || r.Libelle || r['Libellé'] || '']));
+    MODAL_MAP  = Object.fromEntries(mRows.map(r => [r.id, r.libelle || r.Libelle || r['Libellé'] || '']));
+    CONT_MAP   = Object.fromEntries(cRows.map(r => [r.id, contactLabelFromRow(r)]).filter(([,v]) => v));
+    PUBLIC_MAP = Object.fromEntries(pRows.map(r => [r.id, publicLabelFromRow(r)]).filter(([,v]) => v));
 
-    VOLET_ID_BY_LABEL  = buildIdByLabel(vRows, simpleLabel);
-    AXE_ID_BY_LABEL    = buildIdByLabel(aRows, simpleLabel);
-    STRUCT_ID_BY_LABEL = buildIdByLabel(sRows, structLabel, r => [r.libelle, r.Libelle, r['Libellé'], r.Code, r.code]);
-    MODAL_ID_BY_LABEL  = buildIdByLabel(mRows, simpleLabel);
-    CONT_ID_BY_LABEL   = buildIdByLabel(cRows, contactLabelFromRow, r => [firstText(r, ['nom_prenom', 'NOM_PRENOM', 'Nom_prenom']), [firstText(r, ['PRENOM','Prenom','Prénom','prenom']), firstText(r, ['NOM','Nom','nom'])].filter(Boolean).join(' ').trim()]);
-    PUBLIC_ID_BY_LABEL = buildIdByLabel(pRows, publicLabelFromRow);
-    DEGRE_ID_BY_LABEL = buildIdByLabel(dRows, simpleLabel);
+    window.VOLET_VALUES  = [...new Set(vRows.map(r => r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
+    window.AXE_VALUES    = [...new Set(aRows.map(r => r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
+    window.STRUCT_VALUES = [...new Set(sRows.map(r => r.code || r.Code || r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
+    window.MODAL_VALUES  = [...new Set(mRows.map(r => r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
+    window.CONTACT_VALUES = [...new Set(cRows.map(contactLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
+    window.PUBLIC_VALUES = [...new Set(pRows.map(publicLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
 
-    VOLET_OPTIONS   = buildOptions(vRows, simpleLabel);
-    AXE_OPTIONS     = buildOptions(aRows, simpleLabel);
-    STRUCT_OPTIONS  = buildOptions(sRows, structLabel);
-    MODAL_OPTIONS   = buildOptions(mRows, simpleLabel);
-    CONTACT_OPTIONS = buildOptions(cRows, contactLabelFromRow);
-    PUBLIC_OPTIONS  = buildOptions(pRows, publicLabelFromRow);
-    DEGRE_OPTIONS  = buildOptions(dRows, simpleLabel);
-
-    window.VOLET_VALUES  = VOLET_OPTIONS.map(o => o.label);
-    window.AXE_VALUES    = AXE_OPTIONS.map(o => o.label);
-    window.STRUCT_VALUES = STRUCT_OPTIONS.map(o => o.label);
-    window.MODAL_VALUES  = MODAL_OPTIONS.map(o => o.label);
-    window.CONTACT_VALUES = CONTACT_OPTIONS.map(o => o.label);
-    window.PUBLIC_VALUES = PUBLIC_OPTIONS.map(o => o.label);
-    window.DEGRE_VALUES = DEGRE_OPTIONS.map(o => o.label);
+    // Degrés : stocker les valeurs pour le select
+    window.DEGRE_VALUES = dRows.map(r => r.libelle || r.Libelle || Object.values(r).find(v=>typeof v==='string'&&v) || '').filter(Boolean);
     if (!window.DEGRE_VALUES.length) window.DEGRE_VALUES = ['1er degré', '2nd degré'];
 
     ALL = records.map(r => ({ id: r.id, ...r }));
     ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'], ACTION_COL);
-    MODAL_COL = detectExistingColumn(ALL, ['id_modalite', 'id_modalité', 'id_modalites', 'modalite', 'Modalite', 'Modalité', 'Modalit_', 'Modalite_', 'Modalit__'], MODAL_COL);
 
     buildFilters();
     applyFilters();
@@ -1028,35 +867,16 @@ grist.onRecord((record, mappings) => {
 });
 
 // ── Filtres ────────────────────────────────────────────────────────────────
-// Les filtres sont alimentés par les tables de référence, pas seulement par les
-// valeurs déjà utilisées dans Actions_formation.
+// Grist envoie des valeurs texte déjà résolues (pas des ids)
+// → on alimente les filtres depuis les valeurs réelles des enregistrements
 function buildFilters() {
-  fillFromValues('f-axe',    window.AXE_VALUES || []);
-  fillFromValues('f-volet',  window.VOLET_VALUES || []);
-  fillFromValues('f-struct', window.STRUCT_VALUES || []);
-  fillFromValues('f-public', window.PUBLIC_VALUES || []);
-  fillFromValues('f-modal',  window.MODAL_VALUES || []);
-}
-
-function fillFromValues(selId, values) {
-  const sel = document.getElementById(selId);
-  if (!sel) return;
-  const cur = sel.value;
-  while (sel.options.length > 1) sel.remove(1);
-  const seen = new Set();
-  (values || []).forEach(v => {
-    const s = String(v || '').trim();
-    if (!s || seen.has(s)) return;
-    seen.add(s);
-    const o = document.createElement('option');
-    o.value = s;
-    o.textContent = s;
-    sel.appendChild(o);
-  });
-  const opts = Array.from(sel.options).slice(1).sort((a,b)=>a.text.localeCompare(b.text, 'fr', {numeric:true}));
-  while (sel.options.length > 1) sel.remove(1);
-  opts.forEach(o => sel.appendChild(o));
-  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+  fillFromData('f-axe',    r => r.id_axe);
+  fillFromData('f-volet',  r => r.id_volet);
+  fillFromData('f-struct',  r => {
+    const v = r.id_structure;
+    return Array.isArray(v) ? v : [v];
+  }, true);
+  fillFromData('f-modal',  r => r.id_modalite);
 }
 
 function fillFromData(selId, getter, isList) {
@@ -1088,9 +908,9 @@ function applyFilters() {
   const volet  = document.getElementById('f-volet').value;
   const struct = document.getElementById('f-struct').value;
   const modal  = document.getElementById('f-modal').value;
-  const pub    = document.getElementById('f-public').value;
   const search = document.getElementById('f-search').value.toLowerCase();
 
+  // Les champs arrivent en texte résolu → comparaison directe en chaîne
   function matchText(val, filter) {
     if (!filter) return true;
     return String(val||'').trim() === filter;
@@ -1102,16 +922,10 @@ function applyFilters() {
   }
 
   FILTERED = ALL.filter(a => {
-    const axeLib    = refLabel(a.id_axe, AXE_MAP, AXE_ID_BY_LABEL, 'Axes');
-    const voletLib  = refLabel(a.id_volet, VOLET_MAP, VOLET_ID_BY_LABEL, 'Volets');
-    const modalLib  = refLabel(getModalite(a), MODAL_MAP, MODAL_ID_BY_LABEL, 'Modalites');
-    const structs   = refListLabels(a.id_structure, STRUCT_MAP, STRUCT_ID_BY_LABEL, 'Structures');
-
-    if (!matchText(axeLib,   axe))    return false;
-    if (!matchText(voletLib, volet))  return false;
-    if (!matchText(modalLib, modal))  return false;
-    if (!matchList(structs,  struct)) return false;
-    if (!matchList(publicValues(a), pub)) return false;
+    if (!matchText(a.id_axe,      axe))    return false;
+    if (!matchText(a.id_volet,    volet))   return false;
+    if (!matchText(a.id_modalite, modal))   return false;
+    if (!matchList(a.id_structure, struct)) return false;
     if (search && !(a.titre||'').toLowerCase().includes(search) &&
                   !(a.objectif||'').toLowerCase().includes(search) &&
                   !publicValues(a).join(' ').toLowerCase().includes(search) &&
@@ -1126,7 +940,7 @@ function applyFilters() {
 }
 
 function resetFilters() {
-  ['f-axe','f-volet','f-struct','f-public','f-modal'].forEach(id =>
+  ['f-axe','f-volet','f-struct','f-modal'].forEach(id =>
     document.getElementById(id).value = '');
   document.getElementById('f-search').value = '';
   applyFilters();
@@ -1144,7 +958,6 @@ function selectCard(id) {
 // ── MODALE ────────────────────────────────────────────────────────────────
 let CURRENT_ACTION = null;
 let CURRENT_MODE = 'edit';
-let INITIAL_FORM = null;
 let REF_LISTS = {};  // volets, axes, structs, modals, contacts, publics
 
 function openCreateModal() {
@@ -1157,8 +970,7 @@ function openModal(action, mode='edit') {
   const isNew = mode === 'create';
 
   // Bande de couleur
-  const axeLib = refLabel(action.id_axe, AXE_MAP, AXE_ID_BY_LABEL, 'Axes');
-  const voletLib = refLabel(action.id_volet, VOLET_MAP, VOLET_ID_BY_LABEL, 'Volets');
+  const axeLib = String(action.id_axe||'');
   const num    = axeNum(axeLib);
   document.getElementById('modal-band').className =
     'modal-band ' + (BANDS[num]||'').replace('band-','band-');
@@ -1167,11 +979,10 @@ function openModal(action, mode='edit') {
   document.getElementById('modal-title').textContent = isNew ? 'Inscrire une action' : (action.titre||'Sans titre');
   document.getElementById('modal-meta').textContent  = isNew
     ? 'Nouvelle action de formation'
-    : [voletLib, axeLib, action.periode].filter(Boolean).join(' · ');
+    : [action.id_volet, action.id_axe, action.periode].filter(Boolean).join(' · ');
 
   // Construire le formulaire
   buildModalForm(action);
-  INITIAL_FORM = readFormSnapshot();
 
   document.getElementById('btn-save').textContent = isNew ? 'Inscrire' : 'Enregistrer';
 
@@ -1185,7 +996,6 @@ function closeModal(e) {
   document.getElementById('overlay').classList.add('hidden');
   CURRENT_ACTION = null;
   CURRENT_MODE = 'edit';
-  INITIAL_FORM = null;
   document.getElementById('btn-save').textContent = 'Enregistrer';
 }
 
@@ -1214,15 +1024,9 @@ function buildModalForm(a) {
   const uniq = field => [...new Set(ALL.map(r=>String(r[field]||'')).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
   const uniqList = field => [...new Set(ALL.flatMap(r => asList(r[field])).map(String).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
 
-  const optionList = (preferred, fallbackField, map, idByLabel, tableName, isList=false) => {
-    if (preferred && preferred.length) return preferred;
-    const vals = isList ? uniqList(fallbackField) : uniq(fallbackField);
-    const seen = new Set();
-    return vals.map(v => {
-      const id = refId(v, idByLabel, map, tableName);
-      const label = refLabel(v, map, idByLabel, tableName);
-      return { value: id || label, label };
-    }).filter(o => o.value && o.label && !seen.has(o.value) && seen.add(o.value));
+  const optionValues = (preferred, fallbackField) => {
+    const vals = (preferred && preferred.length) ? preferred : uniq(fallbackField);
+    return [...new Set(vals.map(v => String(v||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr', {numeric:true}));
   };
   const selected = (cur, v) => String(cur||'').trim() === String(v||'').trim() ? ' selected' : '';
   const selectedAction = (cur, opt) => {
@@ -1230,14 +1034,20 @@ function buildModalForm(a) {
     const curText = cleanActionAxeKey(cur);
     return (refId === String(opt.value||'').trim() || curText === String(opt.value||'').trim() || actionAxeDisplay(cur) === opt.label) ? ' selected' : '';
   };
+  const checked = (values, v) => values.map(x=>String(x||'').trim()).includes(String(v||'').trim()) ? ' checked' : '';
 
-  const voletOptions   = optionList(VOLET_OPTIONS,   'id_volet',     VOLET_MAP,  VOLET_ID_BY_LABEL,  'Volets');
-  const axeOptions     = optionList(AXE_OPTIONS,     'id_axe',       AXE_MAP,    AXE_ID_BY_LABEL,    'Axes');
-  const modalOptions   = optionList(MODAL_OPTIONS,   MODAL_COL,      MODAL_MAP,  MODAL_ID_BY_LABEL,  'Modalites');
-  const structOptions  = optionList(STRUCT_OPTIONS,  'id_structure', STRUCT_MAP, STRUCT_ID_BY_LABEL, 'Structures', true);
-  const contactOptions = optionList(CONTACT_OPTIONS, 'id_contacts',  CONT_MAP,   CONT_ID_BY_LABEL,   'Contacts', true);
-  const publicOptions  = optionList(PUBLIC_OPTIONS,  'id_publics',   PUBLIC_MAP, PUBLIC_ID_BY_LABEL, 'Publics', true);
-  const degreOptions   = optionList(DEGRE_OPTIONS,   'Degre',        DEGRE_MAP, DEGRE_ID_BY_LABEL, '', true);
+  const voletOptions  = optionValues(window.VOLET_VALUES, 'id_volet');
+  const axeOptions    = optionValues(window.AXE_VALUES, 'id_axe');
+  const modalOptions  = optionValues(window.MODAL_VALUES, 'id_modalite');
+  const structOptions = optionValues(window.STRUCT_VALUES, 'id_structure');
+  const contactOptions = (window.CONTACT_VALUES && window.CONTACT_VALUES.length)
+    ? window.CONTACT_VALUES
+    : uniqList('id_contacts').map(contactValue).filter(Boolean);
+  const selectedContacts = contactValues(a);
+  const selectedPublics = publicValues(a);
+  const publicOptions = (window.PUBLIC_VALUES && window.PUBLIC_VALUES.length)
+    ? window.PUBLIC_VALUES
+    : uniqList('id_publics').map(publicValue).filter(Boolean);
   const actionVal = getActionAxe(a);
 
   body.innerHTML = `
@@ -1254,14 +1064,17 @@ function buildModalForm(a) {
         <label>Degré</label>
         <select id="m-degre">
           <option value="">—</option>
-          ${degreOptions.map(o=>`<option value="${esc(o.value)}"${checkedRefList(a.Degre, o, DEGRE_ID_BY_LABEL, DEGRE_MAP, '').replace(' checked',' selected')}>${esc(o.label)}</option>`).join('')}
+          ${(window.DEGRE_VALUES||['1er degré','2nd degré']).map(v=>{
+            const cur = Array.isArray(a.Degre)?a.Degre[0]:(a.Degre||'');
+            return `<option value="${esc(v)}"${selected(cur, v)}>${esc(v)}</option>`;
+          }).join('')}
         </select>
       </div>
       <div class="mfield">
         <label>Volet</label>
         <select id="m-volet">
           <option value="">—</option>
-          ${voletOptions.map(o=>`<option value="${esc(o.value)}"${selectedRef(a.id_volet, o, VOLET_ID_BY_LABEL, VOLET_MAP, 'Volets')}>${esc(o.label)}</option>`).join('')}
+          ${voletOptions.map(v=>`<option value="${esc(v)}"${selected(a.id_volet, v)}>${esc(v)}</option>`).join('')}
         </select>
       </div>
     </div>
@@ -1270,7 +1083,7 @@ function buildModalForm(a) {
         <label>Axe</label>
         <select id="m-axe">
           <option value="">—</option>
-          ${axeOptions.map(o=>`<option value="${esc(o.value)}"${selectedRef(a.id_axe, o, AXE_ID_BY_LABEL, AXE_MAP, 'Axes')}>${esc(o.label)}</option>`).join('')}
+          ${axeOptions.map(v=>`<option value="${esc(v)}"${selected(a.id_axe, v)}>${esc(v)}</option>`).join('')}
         </select>
       </div>
       <div class="mfield">
@@ -1296,7 +1109,7 @@ function buildModalForm(a) {
         <label>Modalité</label>
         <select id="m-modal">
           <option value="">—</option>
-          ${modalOptions.map(o=>`<option value="${esc(o.value)}"${selectedRef(getModalite(a), o, MODAL_ID_BY_LABEL, MODAL_MAP, 'Modalites')}>${esc(o.label)}</option>`).join('')}
+          ${modalOptions.map(v=>`<option value="${esc(v)}"${selected(a.id_modalite, v)}>${esc(v)}</option>`).join('')}
         </select>
       </div>
       <div class="mfield">
@@ -1314,59 +1127,21 @@ function buildModalForm(a) {
     <div class="mfield full">
       <label>Structure(s) porteuse(s)</label>
       <div class="mchips" id="m-structs">
-        ${structOptions.map(o => `<label class="mchip"><input type="checkbox" value="${esc(o.value)}"${checkedRefList(a.id_structure, o, STRUCT_ID_BY_LABEL, STRUCT_MAP, 'Structures')}><span>${esc(o.label)}</span></label>`).join('')}
+        ${structOptions.map(v => `<label class="mchip"><input type="checkbox" value="${esc(v)}"${checked(asList(a.id_structure), v)}><span>${esc(v)}</span></label>`).join('')}
       </div>
     </div>
     <div class="mfield full">
       <label>Contact(s) / pilote(s)</label>
       <div class="mchips" id="m-contacts">
-        ${contactOptions.map(o => `<label class="mchip"><input type="checkbox" value="${esc(o.value)}"${checkedRefList(a.id_contacts, o, CONT_ID_BY_LABEL, CONT_MAP, 'Contacts')}><span>${esc(o.label)}</span></label>`).join('')}
+        ${contactOptions.map(v => `<label class="mchip"><input type="checkbox" value="${esc(v)}"${checked(selectedContacts, v)}><span>${esc(v)}</span></label>`).join('')}
       </div>
     </div>
     <div class="mfield full">
       <label>Publics cibles</label>
       <div class="mchips" id="m-publics">
-        ${publicOptions.map(o => `<label class="mchip"><input type="checkbox" value="${esc(o.value)}"${checkedRefList(a.id_publics, o, PUBLIC_ID_BY_LABEL, PUBLIC_MAP, 'Publics')}><span>${esc(o.label)}</span></label>`).join('')}
+        ${publicOptions.map(v => `<label class="mchip"><input type="checkbox" value="${esc(v)}"${checked(selectedPublics, v)}><span>${esc(v)}</span></label>`).join('')}
       </div>
     </div>`;
-}
-
-function checkedValues(selector) {
-  return [...document.querySelectorAll(selector + ' input:checked')].map(c => c.value).sort((a,b)=>String(a).localeCompare(String(b), 'fr', {numeric:true}));
-}
-
-function readFormSnapshot() {
-  const byId = id => document.getElementById(id);
-  return {
-    titre:      byId('m-titre')?.value ?? '',
-    objectif:   byId('m-objectif')?.value ?? '',
-    code_gaia:  byId('m-gaia')?.value ?? '',
-    jours:      (byId('m-jours')?.value ?? '').trim().replace(',', '.'),
-    volet:      byId('m-volet')?.value ?? '',
-    axe:        byId('m-axe')?.value ?? '',
-    action:     byId('m-action-axe')?.value ?? '',
-    modalite:   byId('m-modal')?.value ?? '',
-    degre:      byId('m-degre')?.value ?? '',
-    debut:      byId('m-debut')?.value ?? '',
-    fin:        byId('m-fin')?.value ?? '',
-    structures: checkedValues('#m-structs'),
-    contacts:   checkedValues('#m-contacts'),
-    publics:    checkedValues('#m-publics'),
-  };
-}
-
-function sameArray(a, b) {
-  a = [...(a || [])].map(String).sort((x,y)=>x.localeCompare(y, 'fr', {numeric:true}));
-  b = [...(b || [])].map(String).sort((x,y)=>x.localeCompare(y, 'fr', {numeric:true}));
-  return a.length === b.length && a.every((v, i) => v === b[i]);
-}
-
-function changedField(name, snapshot) {
-  if (CURRENT_MODE === 'create' || !INITIAL_FORM) return true;
-  const a = INITIAL_FORM[name];
-  const b = snapshot[name];
-  if (Array.isArray(a) || Array.isArray(b)) return !sameArray(a, b);
-  return String(a ?? '') !== String(b ?? '');
 }
 
 // ── Enregistrer les modifications dans Grist ──────────────────────────────
@@ -1378,9 +1153,16 @@ async function saveRecord() {
   msg.textContent = CURRENT_MODE === 'create' ? 'Inscription…' : 'Enregistrement…';
   msg.className = 'msg-save';
 
-  const snap = readFormSnapshot();
+  // Lire les valeurs du formulaire
+  const structs  = [...document.querySelectorAll('#m-structs input:checked')].map(c=>c.value);
+  const contacts = [...document.querySelectorAll('#m-contacts input:checked')].map(c=>c.value);
+  const publics  = [...document.querySelectorAll('#m-publics input:checked')].map(c=>c.value);
 
-  const joursRaw = snap.jours;
+  const degreVal = document.getElementById('m-degre').value;
+  const debutVal = document.getElementById('m-debut').value;
+  const finVal   = document.getElementById('m-fin').value;
+
+  const joursRaw = document.getElementById('m-jours').value.trim().replace(',', '.');
   let joursVal = null;
   if (joursRaw !== '') {
     joursVal = Number(joursRaw);
@@ -1394,42 +1176,25 @@ async function saveRecord() {
 
   const toTs = v => v ? Math.floor(new Date(v + 'T12:00:00').getTime()/1000) : null;
 
-  // En création, tous les champs sont envoyés.
-  // En édition, seuls les champs effectivement modifiés sont envoyés.
-  // Cela évite de réécrire involontairement des colonnes de référence avec des valeurs d'affichage.
-  const fields = {};
-  const put = (name, value, key=name) => {
-    if (CURRENT_MODE === 'create' || changedField(key, snap)) fields[name] = value;
+  const fields = {
+    titre:               document.getElementById('m-titre').value.trim(),
+    objectif:            document.getElementById('m-objectif').value.trim(),
+    code_gaia:           document.getElementById('m-gaia').value.trim(),
+    journees_stagiaires: joursVal,
+    id_volet:            document.getElementById('m-volet').value,
+    id_axe:              document.getElementById('m-axe').value,
+    id_modalite:         document.getElementById('m-modal').value,
+    id_structure:        structs,
+    id_contacts:         contacts,
+    id_publics:          publics,
+    Degre:               degreVal ? [degreVal] : [],
+    date_debut:          toTs(debutVal),
+    date_fin:            toTs(finVal),
   };
+  const actionAxeRaw = document.getElementById('m-action-axe').value;
+  fields[ACTION_COL] = actionAxeRaw ? (Number.isInteger(Number(actionAxeRaw)) ? Number(actionAxeRaw) : actionAxeRaw) : null;
 
-  put('titre',               snap.titre.trim(), 'titre');
-  put('objectif',            snap.objectif.trim(), 'objectif');
-  put('code_gaia',           snap.code_gaia.trim(), 'code_gaia');
-  put('journees_stagiaires', joursRaw === '' ? null : joursVal, 'jours');
-  put('id_volet',            makeRef(snap.volet, VOLET_ID_BY_LABEL, VOLET_MAP, 'Volets'), 'volet');
-  put('id_axe',              makeRef(snap.axe, AXE_ID_BY_LABEL, AXE_MAP, 'Axes'), 'axe');
-  const modalRef = makeRef(snap.modalite, MODAL_ID_BY_LABEL, MODAL_MAP, 'Modalites');
-  if (CURRENT_MODE === 'create' || changedField('modalite', snap) || shouldRepairInvalidRef(getModalite(CURRENT_ACTION), snap.modalite, MODAL_ID_BY_LABEL, MODAL_MAP, 'Modalites')) {
-    fields[MODAL_COL] = snap.modalite ? modalRef : null;
-  }
-  put('id_structure',        makeRefList(snap.structures, STRUCT_ID_BY_LABEL, STRUCT_MAP, 'Structures'), 'structures');
-  put('id_contacts',         makeRefList(snap.contacts, CONT_ID_BY_LABEL, CONT_MAP, 'Contacts'), 'contacts');
-  put('id_publics',          makeRefList(snap.publics, PUBLIC_ID_BY_LABEL, PUBLIC_MAP, 'Publics'), 'publics');
-  put('Degre',               makeRefList(snap.degre ? [snap.degre] : [], DEGRE_ID_BY_LABEL, DEGRE_MAP, ''), 'degre');
-  put('date_debut',          toTs(snap.debut), 'debut');
-  put('date_fin',            toTs(snap.fin), 'fin');
-
-  const actionRef = makeRef(snap.action, {}, ACTION_AXE_MAP, 'Actions_axes');
-  if (CURRENT_MODE === 'create' || changedField('action', snap)) fields[ACTION_COL] = actionRef;
-
-  if (CURRENT_MODE !== 'create' && Object.keys(fields).length === 0) {
-    msg.textContent = 'Aucune modification à enregistrer.';
-    msg.className = 'msg-save';
-    btn.disabled = false;
-    return;
-  }
-
-  console.debug('[widget-cartes] Champs envoyés à Grist', fields);
+  // Les dates et les valeurs numériques restent à null quand elles sont vides : aucune valeur par défaut n'est imposée.
 
   try {
     if (CURRENT_MODE === 'create') {
@@ -1479,19 +1244,20 @@ function render() {
   }
 
   const html = FILTERED.map((a, i) => {
-    const axeLib   = refLabel(a.id_axe, AXE_MAP, AXE_ID_BY_LABEL, 'Axes');
-    const voletLib = refLabel(a.id_volet, VOLET_MAP, VOLET_ID_BY_LABEL, 'Volets');
-    const modalLib = refLabel(getModalite(a), MODAL_MAP, MODAL_ID_BY_LABEL, 'Modalites');
+    // Grist envoie directement les textes résolus
+    const axeLib   = String(a.id_axe    ||'');
+    const voletLib = String(a.id_volet  ||'');
+    const modalLib = String(a.id_modalite||'');
     const num      = axeNum(axeLib);
     const band     = BANDS[num] || '';
-    const structs  = refListLabels(a.id_structure, STRUCT_MAP, STRUCT_ID_BY_LABEL, 'Structures');
+    const structs  = asList(a.id_structure).filter(Boolean);
     const publics  = publicValues(a);
     const contacts = contactValues(a);
     const actionAxe = actionAxeDisplay(getActionAxe(a));
     const objectif = (a.objectif||'').replace(/\n/g,' ').trim();
     const periode  = a.periode || '';
     const gaia     = a.code_gaia || '';
-    const degre    = refListLabels(a.Degre, DEGRE_MAP, DEGRE_ID_BY_LABEL, '').join(', ');
+    const degre    = Array.isArray(a.Degre) ? a.Degre.join(', ') : (a.Degre||'');
     const delay    = Math.min(i * 18, 400);
     const isSel    = a.id === selectedId;
 
