@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Catalogue public des actions de formation</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --turquoise:  #A8DDD8;
+  --peach:      #F9C59A;
+  --strawberry: #F5A0A8;
+  --lilas:      #E8E8F5;
+  --navy:       #1B3A6B;
+  --navy-l:     #e8edf5;
+  --bg:         #F7F5F2;
+  --white:      #ffffff;
+  --ink:        #1a1208;
+  --ink2:       #4a3f2f;
+  --ink3:       #8a8070;
+  --border:     #E0D8CC;
+}
+
+html, body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  min-height: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.toolbar {
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.tb-title {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-right: 6px;
+  min-width: 175px;
+}
+.tb-title strong {
+  font-family: 'Fraunces', serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.1;
+}
+.tb-title span {
+  font-family: 'DM Mono', monospace;
+  font-size: 8.5px;
+  color: var(--ink3);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.tb-search {
+  position: relative;
+  flex: 2;
+  min-width: 170px;
+}
+.tb-search svg {
+  position: absolute;
+  left: 9px; top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--ink3);
+}
+.tb-search input {
+  width: 100%;
+  padding: 6px 10px 6px 30px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+  transition: border-color .12s;
+}
+.tb-search input:focus { border-color: var(--navy); }
+
+.tb-sel {
+  position: relative;
+  flex: 1;
+  min-width: 120px;
+}
+.tb-sel select {
+  width: 100%;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 24px 6px 9px;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition: border-color .12s;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%238a8070' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+}
+.tb-sel select:focus { border-color: var(--navy); }
+
+.btn-reset {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--ink3);
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .12s;
+  white-space: nowrap;
+}
+.btn-reset:hover { border-color: var(--strawberry); color: var(--strawberry); }
+
+.count {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--ink3);
+  white-space: nowrap;
+  background: var(--lilas);
+  padding: 4px 9px;
+  border-radius: 10px;
+}
+
+.grid-wrap {
+  height: calc(100vh - 56px);
+  overflow-y: auto;
+  padding: 12px;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 10px;
+}
+
+.card {
+  background: var(--white);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: transform .15s, box-shadow .15s, border-color .15s;
+  animation: fadeUp .25s ease both;
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(27,58,107,.12);
+  border-color: var(--navy);
+}
+.card.selected {
+  border-color: var(--navy);
+  box-shadow: 0 0 0 3px rgba(27,58,107,.15);
+}
+.card-band { height: 4px; flex-shrink: 0; }
+.band-1 { background: var(--strawberry); }
+.band-2 { background: var(--turquoise); }
+.band-3 { background: var(--peach); }
+.band-4 { background: var(--lilas); }
+.band-5 { background: #C8B4E0; }
+.band-6 { background: #A8C8E8; }
+.band-7 { background: #A8E0B4; }
+.band-8 { background: #E0C8A8; }
+
+.card-body {
+  padding: 13px 15px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.chip-volet {
+  font-family: 'DM Mono', monospace;
+  font-size: 8.5px;
+  font-weight: 500;
+  color: var(--navy);
+  background: var(--navy-l);
+  padding: 2px 7px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.card-top-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.chip-gaia {
+  font-family: 'DM Mono', monospace;
+  font-size: 8.5px;
+  color: var(--ink3);
+  white-space: nowrap;
+}
+.chip-degre {
+  font-family: 'DM Mono', monospace;
+  font-size: 8.5px;
+  font-weight: 600;
+  color: var(--navy);
+  background: var(--navy-l);
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.card-title {
+  font-family: 'Fraunces', serif;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.4;
+  letter-spacing: -.01em;
+}
+.card-objectif {
+  font-size: 11px;
+  color: var(--ink2);
+  line-height: 1.65;
+}
+.card-sep {
+  height: 1px;
+  background: var(--border);
+  margin-top: auto;
+}
+.card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 2px;
+}
+.meta-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 10.5px;
+}
+.meta-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 8.5px;
+  color: var(--ink3);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  min-width: 64px;
+  padding-top: 1px;
+  flex-shrink: 0;
+}
+.meta-value {
+  color: var(--ink2);
+  font-size: 10.5px;
+  line-height: 1.4;
+  flex: 1;
+}
+.tags { display: flex; flex-wrap: wrap; gap: 3px; }
+.tag {
+  font-size: 9px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.tag-axe     { background: rgba(27,58,107,.08); color: var(--navy); }
+.tag-struct  { background: rgba(168,221,216,.3); color: #1a6b65; }
+.tag-periode { background: rgba(249,197,154,.35); color: #8a4a10; }
+.tag-contact { background: var(--lilas); color: var(--navy); font-family: 'DM Mono', monospace; font-size: 8.5px; }
+.tag-public  { background: rgba(245,160,168,.18); color: #7a2735; }
+.tag-modal   { background: rgba(245,160,168,.2); color: #8a2030; }
+.tag-days    { background: rgba(27,58,107,.06); color: var(--ink2); }
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(27,58,107,.45);
+  backdrop-filter: blur(3px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeOverlay .2s ease;
+}
+@keyframes fadeOverlay { from { opacity: 0; } to { opacity: 1; } }
+.overlay.hidden { display: none; }
+.modal {
+  background: var(--white);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 760px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 64px rgba(27,58,107,.25);
+  animation: slideUp .25s cubic-bezier(.34,1.4,.64,1);
+}
+@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: none; opacity: 1; } }
+.modal-head {
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.modal-band {
+  width: 4px;
+  min-height: 40px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.modal-head-text { flex: 1; }
+.modal-head-text h2 {
+  font-family: 'Fraunces', serif;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.35;
+}
+.modal-head-text .modal-meta {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  color: var(--ink3);
+  margin-top: 4px;
+  letter-spacing: .05em;
+}
+.btn-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--ink3);
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all .12s;
+}
+.btn-close:hover { background: var(--bg); color: var(--ink); }
+.modal-body {
+  overflow-y: auto;
+  padding: 18px 22px 22px;
+  display: grid;
+  gap: 14px;
+}
+.detail-section { display: flex; flex-direction: column; gap: 6px; }
+.detail-section label {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--ink3);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.detail-section .detail-text {
+  color: var(--ink2);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.detail-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.empty {
+  grid-column: 1/-1;
+  text-align: center;
+  padding: 80px 20px;
+  color: var(--ink3);
+}
+.empty p {
+  font-family: 'Fraunces', serif;
+  font-size: 20px;
+  font-weight: 300;
+  margin-bottom: 8px;
+}
+.empty span { font-size: 11px; font-family: 'DM Mono', monospace; }
+
+#loader {
+  position: fixed;
+  inset: 0;
+  background: rgba(247,245,242,.92);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  z-index: 500;
+}
+#loader.hidden { display: none; }
+.spinner {
+  width: 26px;
+  height: 26px;
+  border: 2.5px solid var(--border);
+  border-top-color: var(--navy);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#loader p {
+  font-family: 'Fraunces', serif;
+  font-size: 13px;
+  color: var(--ink3);
+  font-style: italic;
+}
+
+@media (max-width: 760px) {
+  .toolbar { align-items: stretch; }
+  .tb-title { width: 100%; }
+  .grid { grid-template-columns: 1fr; }
+  .detail-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <div class="tb-title">
+    <strong>Catalogue PNF</strong>
+    <span>Lecture seule</span>
+  </div>
+  <div class="tb-search">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+      <circle cx="11" cy="11" r="8"></circle><path d="M21 21l-4.35-4.35"></path>
+    </svg>
+    <input type="text" id="f-search" placeholder="Rechercher titre, objectif, public…" oninput="applyFilters()">
+  </div>
+  <div class="tb-sel"><select id="f-degre"  onchange="applyFilters()"><option value="">Tous les degrés</option></select></div>
+  <div class="tb-sel"><select id="f-axe"    onchange="applyFilters()"><option value="">Tous les axes</option></select></div>
+  <div class="tb-sel"><select id="f-volet"  onchange="applyFilters()"><option value="">Tous les volets</option></select></div>
+  <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Toutes les structures</option></select></div>
+  <div class="tb-sel"><select id="f-public" onchange="applyFilters()"><option value="">Tous les publics</option></select></div>
+  <button class="btn-reset" onclick="resetFilters()" title="Réinitialiser">✕</button>
+  <span class="count" id="count">–</span>
+</div>
+
+<div class="grid-wrap">
+  <div class="grid" id="grid"></div>
+</div>
+
+<div id="loader"><div class="spinner"></div><p>Chargement du catalogue…</p></div>
+
+<div class="overlay hidden" id="overlay" onclick="closeModal(event)">
+  <div class="modal" id="modal">
+    <div class="modal-head">
+      <div class="modal-band" id="modal-band"></div>
+      <div class="modal-head-text">
+        <h2 id="modal-title">–</h2>
+        <div class="modal-meta" id="modal-meta"></div>
+      </div>
+      <button class="btn-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+// Widget public — lecture seule.
+// Important : ce widget ne demande que l'accès « read table » et ne contient aucune action AddRecord/UpdateRecord.
+
+let ALL = [], FILTERED = [];
+let selectedId = null;
+
+const ROMAN = {I:1,II:2,III:3,IV:4,V:5,VI:6,VII:7,VIII:8};
+const BANDS  = ['', 'band-1', 'band-2', 'band-3', 'band-4', 'band-5', 'band-6', 'band-7', 'band-8'];
+
+const FIELD_ALIASES = {
+  titre: ['titre', 'Titre'],
+  objectif: ['objectif', 'Objectif'],
+  code_gaia: ['code_gaia', 'Code_GAIA', 'Code GAIA', 'Code_GAIA2'],
+  date_debut: ['date_debut', 'Date_debut', 'Date début', 'Date_d_but'],
+  date_fin: ['date_fin', 'Date_fin', 'Date fin'],
+  id_volet: ['id_volet', 'Volet', 'volet'],
+  id_axe: ['id_axe', 'Axe', 'axe'],
+  action_axe: ['id_action_referentiel', 'id_action_axe', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_référentiel', 'Action_r_f_rentiel', 'Action (référentiel)'],
+  id_structure: ['id_structure', 'Structure_porteuse', 'Structure porteuse', 'structures', 'Structures'],
+  id_modalite: ['id_modalite', 'Modalite', 'Modalité', 'modalite'],
+  id_contacts: ['id_contacts', 'Contacts_pilotes', 'Contacts / pilotes', 'contacts_pilotes', 'Contacts'],
+  id_publics: ['id_publics', 'Publics_cibles', 'Publics cibles', 'publics_cibles', 'Publics'],
+  journees_stagiaires: ['journees_stagiaires', 'Journées_stagiaires', 'Journées stagiaires', 'journees'],
+  degre: ['Degre', 'Degré', 'degre'],
+  periode: ['periode', 'Période', 'Periode']
+};
+
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function asList(v) {
+  if (v === null || v === undefined || v === '') return [];
+  if (Array.isArray(v)) return v[0] === 'L' ? v.slice(1) : v;
+  return [v];
+}
+
+function get(a, key) {
+  const aliases = FIELD_ALIASES[key] || [key];
+  for (const k of aliases) {
+    if (Object.prototype.hasOwnProperty.call(a, k) && a[k] !== undefined && a[k] !== null && a[k] !== '') return a[k];
+  }
+  return '';
+}
+
+function textVal(v) {
+  if (v === null || v === undefined) return '';
+  if (Array.isArray(v)) return asList(v).map(textVal).filter(Boolean).join(', ');
+  if (typeof v === 'object') {
+    return v.display || v.label || v.nom_prenom || v.NOM_PRENOM || v.Name || v.name || Object.values(v).filter(x => typeof x === 'string' && x.trim()).join(' ');
+  }
+  return String(v).trim();
+}
+
+function cleanDisplay(v) {
+  return textVal(v)
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function cleanContactName(v) {
+  let s = textVal(v)
+    .replace(/mailto:/gi, '')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/\([^)]*@[^)]*\)/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+[;,]$/g, '')
+    .trim();
+
+  // Évite d'afficher un identifiant technique si Grist ne fournit pas le libellé de référence.
+  if (/^\d+$/.test(s)) return '';
+  return s;
+}
+
+function listText(a, key, cleaner = cleanDisplay) {
+  return asList(get(a, key)).map(cleaner).filter(Boolean);
+}
+
+function firstText(a, key) {
+  return cleanDisplay(get(a, key));
+}
+
+function axeNum(lib) {
+  const m = (lib || '').match(/Axe\s+(VIII?|VII?|VI?|IV?|I{1,3})/i);
+  return m ? (ROMAN[m[1].toUpperCase()] || 0) : 0;
+}
+
+function fmtDate(val) {
+  if (!val) return '';
+  try {
+    if (typeof val === 'number') {
+      const millis = val < 1000000000000 ? val * 1000 : val;
+      return new Intl.DateTimeFormat('fr-FR', {day:'2-digit', month:'2-digit', year:'numeric'}).format(new Date(millis));
+    }
+    const d = new Date(val);
+    if (isNaN(d)) return cleanDisplay(val);
+    return new Intl.DateTimeFormat('fr-FR', {day:'2-digit', month:'2-digit', year:'numeric'}).format(d);
+  } catch(e) {
+    return cleanDisplay(val);
+  }
+}
+
+function periodeText(a) {
+  const explicit = firstText(a, 'periode');
+  if (explicit) return explicit;
+  const deb = fmtDate(get(a, 'date_debut'));
+  const fin = fmtDate(get(a, 'date_fin'));
+  if (deb && fin) return `${deb} → ${fin}`;
+  return deb || fin || '';
+}
+
+function daysText(a) {
+  const v = get(a, 'journees_stagiaires');
+  if (v === null || v === undefined || v === '') return '';
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  return `${String(n).replace('.', ',')} journée${n > 1 ? 's' : ''} stagiaire${n > 1 ? 's' : ''}`;
+}
+
+function buildFilters() {
+  fillFilter('f-degre',  a => listText(a, 'degre'));
+  fillFilter('f-axe',    a => [firstText(a, 'id_axe')]);
+  fillFilter('f-volet',  a => [firstText(a, 'id_volet')]);
+  fillFilter('f-struct', a => listText(a, 'id_structure'));
+  fillFilter('f-public', a => listText(a, 'id_publics'));
+}
+
+function fillFilter(selId, getter) {
+  const sel = document.getElementById(selId);
+  const cur = sel.value;
+  while (sel.options.length > 1) sel.remove(1);
+
+  const seen = new Set();
+  ALL.forEach(a => {
+    getter(a).forEach(v => {
+      const s = String(v || '').trim();
+      if (!s || seen.has(s)) return;
+      seen.add(s);
+      const option = document.createElement('option');
+      option.value = s;
+      option.textContent = s;
+      sel.appendChild(option);
+    });
+  });
+
+  const opts = Array.from(sel.options).slice(1).sort((a,b) => a.text.localeCompare(b.text, 'fr', {numeric:true}));
+  while (sel.options.length > 1) sel.remove(1);
+  opts.forEach(o => sel.appendChild(o));
+  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+}
+
+function matchText(value, filter) {
+  if (!filter) return true;
+  return String(value || '').trim() === filter;
+}
+
+function matchList(values, filter) {
+  if (!filter) return true;
+  return values.some(v => String(v || '').trim() === filter);
+}
+
+function searchableText(a) {
+  return [
+    firstText(a, 'titre'),
+    firstText(a, 'objectif'),
+    firstText(a, 'id_volet'),
+    firstText(a, 'id_axe'),
+    firstText(a, 'action_axe'),
+    firstText(a, 'id_modalite'),
+    ...listText(a, 'id_structure'),
+    ...listText(a, 'id_publics'),
+    ...listText(a, 'id_contacts', cleanContactName),
+    ...listText(a, 'degre')
+  ].join(' ').toLowerCase();
+}
+
+function applyFilters() {
+  const degre  = document.getElementById('f-degre').value;
+  const axe    = document.getElementById('f-axe').value;
+  const volet  = document.getElementById('f-volet').value;
+  const struct = document.getElementById('f-struct').value;
+  const pub    = document.getElementById('f-public').value;
+  const search = document.getElementById('f-search').value.toLowerCase().trim();
+
+  FILTERED = ALL.filter(a => {
+    if (!matchList(listText(a, 'degre'), degre)) return false;
+    if (!matchText(firstText(a, 'id_axe'), axe)) return false;
+    if (!matchText(firstText(a, 'id_volet'), volet)) return false;
+    if (!matchList(listText(a, 'id_structure'), struct)) return false;
+    if (!matchList(listText(a, 'id_publics'), pub)) return false;
+    if (search && !searchableText(a).includes(search)) return false;
+    return true;
+  });
+
+  document.getElementById('count').textContent = `${FILTERED.length} action${FILTERED.length > 1 ? 's' : ''}`;
+  render();
+}
+
+function resetFilters() {
+  ['f-degre', 'f-axe', 'f-volet', 'f-struct', 'f-public'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('f-search').value = '';
+  applyFilters();
+}
+
+function selectCard(id) {
+  selectedId = id;
+  document.querySelectorAll('.card').forEach(el => el.classList.toggle('selected', +el.dataset.id === id));
+  const action = ALL.find(a => a.id === id);
+  if (action) openModal(action);
+}
+
+function openModal(a) {
+  const axeLib = firstText(a, 'id_axe');
+  const num = axeNum(axeLib);
+  document.getElementById('modal-band').className = 'modal-band ' + (BANDS[num] || '');
+  document.getElementById('modal-title').textContent = firstText(a, 'titre') || 'Sans titre';
+  document.getElementById('modal-meta').textContent = [firstText(a, 'id_volet'), axeLib, periodeText(a)].filter(Boolean).join(' · ');
+
+  const publics = listText(a, 'id_publics');
+  const structs = listText(a, 'id_structure');
+  const contacts = listText(a, 'id_contacts', cleanContactName);
+  const degres = listText(a, 'degre');
+  const modalite = firstText(a, 'id_modalite');
+  const actionAxe = firstText(a, 'action_axe');
+  const gaia = firstText(a, 'code_gaia');
+  const days = daysText(a);
+  const periode = periodeText(a);
+
+  const section = (label, html) => html ? `<div class="detail-section"><label>${esc(label)}</label>${html}</div>` : '';
+  const tagList = (items, cls) => items.length ? `<div class="detail-tags">${items.map(x => `<span class="tag ${cls}">${esc(x)}</span>`).join('')}</div>` : '';
+
+  document.getElementById('modal-body').innerHTML = `
+    ${section('Objectif', firstText(a, 'objectif') ? `<div class="detail-text">${esc(firstText(a, 'objectif'))}</div>` : '')}
+    <div class="detail-grid">
+      ${section('Degré', tagList(degres, 'tag-axe'))}
+      ${section('Période', periode ? `<div class="detail-tags"><span class="tag tag-periode">${esc(periode)}</span></div>` : '')}
+      ${section('Volet', firstText(a, 'id_volet') ? `<div class="detail-tags"><span class="tag tag-axe">${esc(firstText(a, 'id_volet'))}</span></div>` : '')}
+      ${section('Axe', axeLib ? `<div class="detail-tags"><span class="tag tag-axe">${esc(axeLib)}</span></div>` : '')}
+      ${section('Action du référentiel', actionAxe ? `<div class="detail-text">${esc(actionAxe)}</div>` : '')}
+      ${section('Modalité', modalite ? `<div class="detail-tags"><span class="tag tag-modal">${esc(modalite)}</span></div>` : '')}
+      ${section('Structure porteuse', tagList(structs, 'tag-struct'))}
+      ${section('Publics cibles', tagList(publics, 'tag-public'))}
+      ${section('Contacts / pilotes', tagList(contacts, 'tag-contact'))}
+      ${section('Code GAIA', gaia ? `<div class="detail-tags"><span class="tag tag-days">GAIA&nbsp;${esc(gaia)}</span></div>` : '')}
+      ${section('Journées stagiaires', days ? `<div class="detail-tags"><span class="tag tag-days">${esc(days)}</span></div>` : '')}
+    </div>`;
+
+  document.getElementById('overlay').classList.remove('hidden');
+}
+
+function closeModal(e) {
+  if (e && e.target !== document.getElementById('overlay')) return;
+  document.getElementById('overlay').classList.add('hidden');
+}
+
+function cardHtml(a, i) {
+  const titre = firstText(a, 'titre') || 'Sans titre';
+  const objectif = firstText(a, 'objectif').replace(/\n/g, ' ').trim();
+  const axeLib = firstText(a, 'id_axe');
+  const voletLib = firstText(a, 'id_volet');
+  const actionAxe = firstText(a, 'action_axe');
+  const modalLib = firstText(a, 'id_modalite');
+  const structs = listText(a, 'id_structure');
+  const publics = listText(a, 'id_publics');
+  const contacts = listText(a, 'id_contacts', cleanContactName);
+  const degres = listText(a, 'degre');
+  const periode = periodeText(a);
+  const gaia = firstText(a, 'code_gaia');
+  const days = daysText(a);
+  const band = BANDS[axeNum(axeLib)] || '';
+  const delay = Math.min(i * 18, 400);
+  const isSel = a.id === selectedId;
+
+  return `
+    <div class="card${isSel ? ' selected' : ''}" data-id="${a.id}" style="animation-delay:${delay}ms" onclick="selectCard(${a.id})">
+      <div class="card-band ${band}"></div>
+      <div class="card-body">
+        <div class="card-top">
+          ${voletLib ? `<span class="chip-volet">${esc(voletLib)}</span>` : '<span></span>'}
+          <span class="card-top-right">
+            ${gaia ? `<span class="chip-gaia">GAIA&nbsp;${esc(gaia)}</span>` : ''}
+            ${degres.length ? `<span class="chip-degre">${esc(degres.join(', '))}</span>` : ''}
+          </span>
+        </div>
+        <div class="card-title">${esc(titre)}</div>
+        ${objectif ? `<div class="card-objectif">${esc(objectif)}</div>` : ''}
+        <div class="card-sep"></div>
+        <div class="card-meta">
+          ${axeLib ? `<div class="meta-row"><span class="meta-label">Axe</span><div class="meta-value"><span class="tag tag-axe">${esc(axeLib)}</span></div></div>` : ''}
+          ${actionAxe ? `<div class="meta-row"><span class="meta-label">Action</span><div class="meta-value"><span class="tag tag-axe">${esc(actionAxe)}</span></div></div>` : ''}
+          ${structs.length ? `<div class="meta-row"><span class="meta-label">Structure</span><div class="meta-value tags">${structs.map(s => `<span class="tag tag-struct">${esc(s)}</span>`).join('')}</div></div>` : ''}
+          ${periode ? `<div class="meta-row"><span class="meta-label">Période</span><div class="meta-value"><span class="tag tag-periode">${esc(periode)}</span></div></div>` : ''}
+          ${modalLib ? `<div class="meta-row"><span class="meta-label">Modalité</span><div class="meta-value"><span class="tag tag-modal">${esc(modalLib)}</span></div></div>` : ''}
+          ${publics.length ? `<div class="meta-row"><span class="meta-label">Publics</span><div class="meta-value tags">${publics.map(p => `<span class="tag tag-public">${esc(p)}</span>`).join('')}</div></div>` : ''}
+          ${contacts.length ? `<div class="meta-row"><span class="meta-label">Contact</span><div class="meta-value tags">${contacts.map(c => `<span class="tag tag-contact">${esc(c)}</span>`).join('')}</div></div>` : ''}
+          ${days ? `<div class="meta-row"><span class="meta-label">Volume</span><div class="meta-value"><span class="tag tag-days">${esc(days)}</span></div></div>` : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
+function render() {
+  const grid = document.getElementById('grid');
+  if (!FILTERED.length) {
+    grid.innerHTML = `<div class="empty"><p>Aucune action trouvée</p><span>Modifiez les filtres pour élargir la recherche</span></div>`;
+    return;
+  }
+  grid.innerHTML = FILTERED.map(cardHtml).join('');
+}
+
+function showLoader(v) {
+  document.getElementById('loader').classList.toggle('hidden', !v);
+}
+
+grist.ready({ requiredAccess: 'read table', columns: [] });
+
+grist.onRecords((records) => {
+  showLoader(true);
+  try {
+    ALL = (records || []).map(r => ({ id: r.id, ...r }));
+    buildFilters();
+    applyFilters();
+  } catch(e) {
+    console.error('Erreur de chargement du widget public :', e);
+    document.getElementById('grid').innerHTML = `<div class="empty"><p>Erreur de chargement</p><span>Vérifiez que le widget est associé à la table Actions_formation.</span></div>`;
+  } finally {
+    showLoader(false);
+  }
+});
+
+grist.onRecord((record) => {
+  if (!record) return;
+  selectedId = record.id;
+  document.querySelectorAll('.card').forEach(el => {
+    const match = +el.dataset.id === selectedId;
+    el.classList.toggle('selected', match);
+    if (match) el.scrollIntoView({behavior:'smooth', block:'nearest'});
+  });
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+});
+</script>
+</body>
+</html>
