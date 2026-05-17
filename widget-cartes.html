@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF</title>
-<!-- Version v19 : sécurisation écriture + table Degres/nom_deg -->
+<!-- Version v8 : sécurisation écriture Modalité -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -943,7 +943,7 @@ grist.onRecords(async (records) => {
       grist.docApi.fetchTable('Modalites'),
       grist.docApi.fetchTable('Contacts'),
       grist.docApi.fetchTable('Publics').catch(() => ({id:[], libelle:[], Libelle:[], 'Libellé':[]})),
-      grist.docApi.fetchTable('Degres').catch(() => ({id:[], nom_deg:[]})),
+      grist.docApi.fetchTable('Degrés').catch(() => grist.docApi.fetchTable('Degres').catch(() => ({id:[], libelle:[]}))),
     ]);
 
     const toRows = t => (t.id||[]).map((id,i) => {
@@ -963,7 +963,6 @@ grist.onRecords(async (records) => {
 
     const simpleLabel = r => r.libelle || r.Libelle || r['Libellé'] || '';
     const structLabel = r => r.code || r.Code || r.libelle || r.Libelle || r['Libellé'] || '';
-    const degreLabel = r => r.nom_deg || r.Nom_deg || r.NOM_DEG || r.Degres || r['Degrés'] || r.libelle || r.Libelle || r['Libellé'] || '';
 
     VOLET_MAP  = Object.fromEntries(vRows.map(r => [String(r.id), simpleLabel(r)]));
     AXE_MAP    = Object.fromEntries(aRows.map(r => [String(r.id), simpleLabel(r)]));
@@ -976,7 +975,7 @@ grist.onRecords(async (records) => {
     MODAL_MAP  = Object.fromEntries(mRows.map(r => [String(r.id), simpleLabel(r)]));
     CONT_MAP   = Object.fromEntries(cRows.map(r => [String(r.id), contactLabelFromRow(r)]).filter(([,v]) => v));
     PUBLIC_MAP = buildPublicMap(pRows);
-    DEGRE_MAP  = Object.fromEntries(dRows.map(r => [String(r.id), degreLabel(r)]).filter(([,v]) => v));
+    DEGRE_MAP  = Object.fromEntries(dRows.map(r => [String(r.id), simpleLabel(r)]).filter(([,v]) => v));
 
     VOLET_ID_BY_LABEL  = buildIdByLabel(vRows, simpleLabel);
     AXE_ID_BY_LABEL    = buildIdByLabel(aRows, simpleLabel);
@@ -984,7 +983,7 @@ grist.onRecords(async (records) => {
     MODAL_ID_BY_LABEL  = buildIdByLabel(mRows, simpleLabel);
     CONT_ID_BY_LABEL   = buildIdByLabel(cRows, contactLabelFromRow, r => [firstText(r, ['nom_prenom', 'NOM_PRENOM', 'Nom_prenom']), [firstText(r, ['PRENOM','Prenom','Prénom','prenom']), firstText(r, ['NOM','Nom','nom'])].filter(Boolean).join(' ').trim()]);
     PUBLIC_ID_BY_LABEL = buildIdByLabel(pRows, publicLabelFromRow);
-    DEGRE_ID_BY_LABEL = buildIdByLabel(dRows, degreLabel);
+    DEGRE_ID_BY_LABEL = buildIdByLabel(dRows, simpleLabel);
 
     VOLET_OPTIONS   = buildOptions(vRows, simpleLabel);
     AXE_OPTIONS     = buildOptions(aRows, simpleLabel);
@@ -992,7 +991,7 @@ grist.onRecords(async (records) => {
     MODAL_OPTIONS   = buildOptions(mRows, simpleLabel);
     CONTACT_OPTIONS = buildOptions(cRows, contactLabelFromRow);
     PUBLIC_OPTIONS  = buildOptions(pRows, publicLabelFromRow);
-    DEGRE_OPTIONS  = buildOptions(dRows, degreLabel);
+    DEGRE_OPTIONS  = buildOptions(dRows, simpleLabel);
 
     window.VOLET_VALUES  = VOLET_OPTIONS.map(o => o.label);
     window.AXE_VALUES    = AXE_OPTIONS.map(o => o.label);
@@ -1001,6 +1000,7 @@ grist.onRecords(async (records) => {
     window.CONTACT_VALUES = CONTACT_OPTIONS.map(o => o.label);
     window.PUBLIC_VALUES = PUBLIC_OPTIONS.map(o => o.label);
     window.DEGRE_VALUES = DEGRE_OPTIONS.map(o => o.label);
+    if (!window.DEGRE_VALUES.length) window.DEGRE_VALUES = ['1er degré', '2nd degré'];
 
     ALL = records.map(r => ({ id: r.id, ...r }));
     ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'], ACTION_COL);
@@ -1237,7 +1237,7 @@ function buildModalForm(a) {
   const structOptions  = optionList(STRUCT_OPTIONS,  'id_structure', STRUCT_MAP, STRUCT_ID_BY_LABEL, 'Structures', true);
   const contactOptions = optionList(CONTACT_OPTIONS, 'id_contacts',  CONT_MAP,   CONT_ID_BY_LABEL,   'Contacts', true);
   const publicOptions  = optionList(PUBLIC_OPTIONS,  'id_publics',   PUBLIC_MAP, PUBLIC_ID_BY_LABEL, 'Publics', true);
-  const degreOptions   = optionList(DEGRE_OPTIONS,   'Degre',        DEGRE_MAP, DEGRE_ID_BY_LABEL, 'Degres', true);
+  const degreOptions   = optionList(DEGRE_OPTIONS,   'Degre',        DEGRE_MAP, DEGRE_ID_BY_LABEL, '', true);
   const actionVal = getActionAxe(a);
 
   body.innerHTML = `
@@ -1254,7 +1254,7 @@ function buildModalForm(a) {
         <label>Degré</label>
         <select id="m-degre">
           <option value="">—</option>
-          ${degreOptions.map(o=>`<option value="${esc(o.value)}"${checkedRefList(a.Degre, o, DEGRE_ID_BY_LABEL, DEGRE_MAP, 'Degres').replace(' checked',' selected')}>${esc(o.label)}</option>`).join('')}
+          ${degreOptions.map(o=>`<option value="${esc(o.value)}"${checkedRefList(a.Degre, o, DEGRE_ID_BY_LABEL, DEGRE_MAP, '').replace(' checked',' selected')}>${esc(o.label)}</option>`).join('')}
         </select>
       </div>
       <div class="mfield">
@@ -1415,7 +1415,7 @@ async function saveRecord() {
   put('id_structure',        makeRefList(snap.structures, STRUCT_ID_BY_LABEL, STRUCT_MAP, 'Structures'), 'structures');
   put('id_contacts',         makeRefList(snap.contacts, CONT_ID_BY_LABEL, CONT_MAP, 'Contacts'), 'contacts');
   put('id_publics',          makeRefList(snap.publics, PUBLIC_ID_BY_LABEL, PUBLIC_MAP, 'Publics'), 'publics');
-  put('Degre',               makeRefList(snap.degre ? [snap.degre] : [], DEGRE_ID_BY_LABEL, DEGRE_MAP, 'Degres'), 'degre');
+  put('Degre',               makeRefList(snap.degre ? [snap.degre] : [], DEGRE_ID_BY_LABEL, DEGRE_MAP, ''), 'degre');
   put('date_debut',          toTs(snap.debut), 'debut');
   put('date_fin',            toTs(snap.fin), 'fin');
 
@@ -1491,7 +1491,7 @@ function render() {
     const objectif = (a.objectif||'').replace(/\n/g,' ').trim();
     const periode  = a.periode || '';
     const gaia     = a.code_gaia || '';
-    const degre    = refListLabels(a.Degre, DEGRE_MAP, DEGRE_ID_BY_LABEL, 'Degres').join(', ');
+    const degre    = refListLabels(a.Degre, DEGRE_MAP, DEGRE_ID_BY_LABEL, '').join(', ');
     const delay    = Math.min(i * 18, 400);
     const isSel    = a.id === selectedId;
 
