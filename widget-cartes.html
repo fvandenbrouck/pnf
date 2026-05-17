@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF</title>
-<!-- Version v12 : table Degrés accentuée, identifiant technique Degre_s, découverte par métadonnées -->
+<!-- Version v13 : résolution Degré par métadonnées de colonne RefList dans Actions_formation -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -879,6 +879,105 @@ async function discoverTableId(names, normalizedPrefix) {
   return '';
 }
 
+
+function colRowParentId(row) {
+  for (const k of ['parentId', 'parent_id', 'parent', 'tableRef', 'table_ref']) {
+    if (row && row[k] !== undefined && row[k] !== null && row[k] !== '') {
+      const rid = refRowIdFromValue(row[k], '_grist_Tables') || rawRefId(row[k], '_grist_Tables');
+      if (rid) return String(rid);
+      if (/^\d+$/.test(String(row[k]).trim())) return String(row[k]).trim();
+    }
+  }
+  return '';
+}
+
+async function gristColumnMetaRows() {
+  try {
+    const meta = await grist.docApi.fetchTable('_grist_Tables_column');
+    return toRowsGeneric(meta);
+  } catch(e) {
+    console.warn('[widget-cartes] Impossible de lire _grist_Tables_column pour découvrir la table Degrés.', e);
+    return [];
+  }
+}
+
+function metaRowMatchesName(row, names, prefix='') {
+  const norms = new Set(expandedTableNames(names || []).map(normalizeIdentifier));
+  const p = normalizeIdentifier(prefix || '');
+  const tableId = likelyTableIdFromMetaRow(row);
+  if (tableId && norms.has(normalizeIdentifier(tableId))) return true;
+  if (tableId && p && normalizeIdentifier(tableId).startsWith(p)) return true;
+  return stringCells(row).some(c => {
+    const n = normalizeIdentifier(c.value);
+    return norms.has(n) || (p && n.startsWith(p));
+  });
+}
+
+function colRowMatchesName(row, names, prefix='') {
+  const norms = new Set((names || []).map(normalizeIdentifier).filter(Boolean));
+  const p = normalizeIdentifier(prefix || '');
+  const cells = [];
+  ['colId','col_id','label','Label','name','Name','displayCol','display_col'].forEach(k => {
+    if (row && row[k] !== undefined && row[k] !== null) cells.push(String(row[k]));
+  });
+  stringCells(row).forEach(c => cells.push(c.value));
+  return cells.some(v => {
+    const n = normalizeIdentifier(v);
+    return norms.has(n) || (p && n.startsWith(p));
+  });
+}
+
+function refTableIdFromColumnType(row) {
+  const type = firstRowText(row, ['type', 'Type', 'colType', 'col_type']);
+  const m = String(type || '').match(/^Ref(?:List)?:(.+)$/);
+  return m ? m[1].trim() : '';
+}
+
+async function discoverReferenceTableIdFromColumn(sourceTableNames, columnNames, prefix='') {
+  const [tables, cols] = await Promise.all([gristMetaRows(), gristColumnMetaRows()]);
+  if (!tables.length || !cols.length) return '';
+
+  const sourceRows = tables.filter(r => metaRowMatchesName(r, sourceTableNames, 'actionsformation'));
+  const sourceRowIds = new Set(sourceRows.map(r => String(r.id)));
+
+  const candidates = cols.filter(c => {
+    const parent = colRowParentId(c);
+    const parentOk = !sourceRowIds.size || !parent || sourceRowIds.has(parent);
+    return parentOk && colRowMatchesName(c, columnNames, prefix);
+  });
+
+  const withRefType = candidates.find(c => refTableIdFromColumnType(c));
+  if (withRefType) {
+    const refTable = refTableIdFromColumnType(withRefType);
+    console.info('[widget-cartes] Table Degré trouvée depuis le type de colonne :', refTable, 'colonne :', withRefType);
+    return refTable;
+  }
+
+  // Secours : si la colonne Degré n'a pas été associée au parent Actions_formation,
+  // chercher toute colonne « degr* » de type Ref/RefList dans le document.
+  const global = cols.find(c => colRowMatchesName(c, columnNames, prefix) && refTableIdFromColumnType(c));
+  if (global) {
+    const refTable = refTableIdFromColumnType(global);
+    console.info('[widget-cartes] Table Degré trouvée globalement depuis le type de colonne :', refTable, 'colonne :', global);
+    return refTable;
+  }
+
+  console.warn('[widget-cartes] Impossible de déduire la table de référence du champ Degré depuis _grist_Tables_column.', {sourceRows, candidates});
+  return '';
+}
+
+async function fetchReferenceTableFromColumn(sourceTableNames, columnNames, fallbackNames, emptyTable, prefix='') {
+  const fromColumn = await discoverReferenceTableIdFromColumn(sourceTableNames, columnNames, prefix);
+  const candidates = [];
+  if (fromColumn) candidates.push(fromColumn);
+  (fallbackNames || []).forEach(n => candidates.push(n));
+  const result = await fetchFirstExistingTableWithId(candidates, emptyTable, prefix);
+  if (fromColumn && result.tableId !== fromColumn) {
+    console.warn('[widget-cartes] La table indiquée par la colonne Degré n’a pas pu être chargée directement.', {fromColumn, loaded: result.tableId});
+  }
+  return result;
+}
+
 async function fetchFirstExistingTable(names, emptyTable = {id:[]}) {
   const result = await fetchFirstExistingTableWithId(names, emptyTable);
   return result.table;
@@ -1111,6 +1210,16 @@ grist.onRecords(async (records) => {
       await new Promise(r => setTimeout(r, 100));
       attempts++;
     }
+
+    const toRows = t => (t.id||[]).map((id,i) => {
+      const row = {id};
+      Object.keys(t).forEach(k => { if(k!=='id') row[k]=t[k][i]; });
+      return row;
+    });
+
+    // Les enregistrements de la table source permettent d’identifier le vrai colId du champ Degré.
+    const degreEmptyTable = {id:[], 'Degrés':[], 'Degre_s':[], 'Degr_s':[], Degre:[], degre:[], degres:[], Degres:[], libelle:[], Libelle:[], 'Libellé':[], Libell_:[]};
+
     const [volets, axes, actionsAxes, structs, modals, contacts, publics, degres] = await Promise.all([
       grist.docApi.fetchTable('Volets'),
       grist.docApi.fetchTable('Axes'),
@@ -1119,14 +1228,14 @@ grist.onRecords(async (records) => {
       grist.docApi.fetchTable('Modalites'),
       grist.docApi.fetchTable('Contacts'),
       grist.docApi.fetchTable('Publics').catch(() => ({id:[], libelle:[], Libelle:[], 'Libellé':[], Libell_:[]})),
-      fetchFirstExistingTableWithId(['Degrés', 'Degres', 'Degre_s', 'Degr_s', 'Degré', 'Degre'], {id:[], 'Degrés':[], 'Degre_s':[], 'Degr_s':[], degres:[], Degres:[], libelle:[], Libelle:[], 'Libellé':[], Libell_:[]}, 'degr'),
+      fetchReferenceTableFromColumn(
+        ['Actions_formation'],
+        [DEGRE_COL, 'Degré', 'Degrés', 'Degre', 'Degres', 'Degre_s', 'Degr_s', 'id_degre', 'id_degres'],
+        ['Degrés', 'Degres', 'Degre_s', 'Degr_s', 'Degré', 'Degre', 'Degre_', 'degre_s'],
+        degreEmptyTable,
+        'degr'
+      ),
     ]);
-
-    const toRows = t => (t.id||[]).map((id,i) => {
-      const row = {id};
-      Object.keys(t).forEach(k => { if(k!=='id') row[k]=t[k][i]; });
-      return row;
-    });
 
     const vRows = toRows(volets);
     const aRows = toRows(axes);
@@ -1180,11 +1289,6 @@ grist.onRecords(async (records) => {
     window.PUBLIC_VALUES = PUBLIC_OPTIONS.map(o => o.label);
     window.DEGRE_VALUES = DEGRE_OPTIONS.map(o => o.label);
     if (!DEGRE_OPTIONS.length) console.warn('[widget-cartes] Aucune valeur chargée depuis la table Degrés. Table détectée :', DEGRE_TABLE_ID, 'Vérifier que la colonne de valeurs s’appelle bien Degrés.');
-
-    ALL = records.map(r => ({ id: r.id, ...r }));
-    ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'], ACTION_COL);
-    MODAL_COL = detectExistingColumn(ALL, ['id_modalite', 'id_modalité', 'id_modalites', 'modalite', 'Modalite', 'Modalité', 'Modalit_', 'Modalite_', 'Modalit__'], MODAL_COL);
-    DEGRE_COL = detectExistingColumn(ALL, ['Degre', 'Degré', 'Degr_', 'Degr__', 'Degre_s', 'id_degre', 'id_degré', 'id_degres', 'id_degrés'], DEGRE_COL);
 
     buildFilters();
     applyFilters();
