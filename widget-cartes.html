@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF</title>
-<!-- Version v8 : sécurisation écriture Modalité -->
+<!-- Version v24 : sécurisation écriture + menu Degres via nom_deg -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -593,8 +593,95 @@ function publicLabelFromRow(r) {
   return firstText(r, ['Libellé', 'libelle', 'Libelle', 'label', 'Label', 'nom', 'Nom']);
 }
 
+
+// Table Degrés : identifiant fonctionnel attendu = Degres ; colonne de libellé = nom_deg.
+// La détection par métadonnées évite de dépendre du libellé de page/vue Grist.
 function degreLabelFromRow(r) {
   return firstText(r, ['nom_deg', 'Nom_deg', 'NOM_DEG', 'Degres', 'Degrés', 'libelle', 'Libelle', 'Libellé', 'label', 'Label', 'nom', 'Nom']);
+}
+
+function normalizeGristName(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function tableToRows(t) {
+  return (t && t.id || []).map((id, i) => {
+    const row = {id};
+    Object.keys(t || {}).forEach(k => { if (k !== 'id') row[k] = t[k][i]; });
+    return row;
+  });
+}
+
+function rawNumericId(v) {
+  if (v === null || v === undefined || v === '') return '';
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  if (Array.isArray(v)) {
+    const nums = asList(v).filter(x => /^\d+$/.test(String(x || '').trim()));
+    return nums.length ? String(nums[nums.length - 1]) : '';
+  }
+  if (typeof v === 'object') {
+    const row = v.rowId ?? v.row_id ?? v.recordId ?? v.record_id ?? v.ref ?? v.value ?? v.id;
+    return /^\d+$/.test(String(row || '').trim()) ? String(row).trim() : '';
+  }
+  return /^\d+$/.test(String(v || '').trim()) ? String(v).trim() : '';
+}
+
+async function fetchDegresTable() {
+  // 1) Méthode robuste : trouver la table réelle à partir des métadonnées et de la colonne nom_deg.
+  try {
+    const [tablesRaw, colsRaw] = await Promise.all([
+      grist.docApi.fetchTable('_grist_Tables'),
+      grist.docApi.fetchTable('_grist_Tables_column')
+    ]);
+    const tables = tableToRows(tablesRaw);
+    const cols = tableToRows(colsRaw);
+    const tableById = Object.fromEntries(tables.map(t => [String(t.id), t]));
+
+    const candidates = [];
+
+    // Table dont le tableId est Degres, si elle existe vraiment sous cet identifiant.
+    tables.forEach(t => {
+      const tableId = String(t.tableId || '').trim();
+      if (normalizeGristName(tableId) === 'degres') candidates.push(tableId);
+    });
+
+    // Table qui contient une colonne nom_deg : c'est le critère le plus fiable ici.
+    cols.forEach(c => {
+      const colId = String(c.colId || '').trim();
+      const label = String(c.label || '').trim();
+      if (normalizeGristName(colId) === 'nomdeg' || normalizeGristName(label) === 'nomdeg') {
+        const parentId = rawNumericId(c.parentId);
+        const tableId = tableById[parentId] && tableById[parentId].tableId;
+        if (tableId) candidates.push(String(tableId));
+      }
+    });
+
+    for (const tableId of [...new Set(candidates)].filter(Boolean)) {
+      try {
+        const t = await grist.docApi.fetchTable(tableId);
+        if (t && Array.isArray(t.id) && (Object.prototype.hasOwnProperty.call(t, 'nom_deg') || Object.prototype.hasOwnProperty.call(t, 'Nom_deg') || Object.prototype.hasOwnProperty.call(t, 'NOM_DEG'))) {
+          console.info('[widget-cartes] Table Degres résolue via métadonnées :', tableId);
+          return t;
+        }
+      } catch (e) {
+        console.warn('[widget-cartes] Table candidate Degres inaccessible :', tableId, e);
+      }
+    }
+  } catch (e) {
+    console.warn('[widget-cartes] Impossible de lire les métadonnées pour Degres :', e);
+  }
+
+  // 2) Fallback direct. Si celui-ci échoue, l'ID technique réel de la table n'est pas Degres.
+  try {
+    const t = await grist.docApi.fetchTable('Degres');
+    console.info('[widget-cartes] Table Degres chargée directement.');
+    return t;
+  } catch (e) {
+    console.error('[widget-cartes] Table Degres introuvable. Vérifier l’ID technique de table et pas seulement le nom de page/vue.', e);
+    return {id:[], nom_deg:[]};
+  }
 }
 
 function buildPublicMap(rows) {
@@ -947,7 +1034,7 @@ grist.onRecords(async (records) => {
       grist.docApi.fetchTable('Modalites'),
       grist.docApi.fetchTable('Contacts'),
       grist.docApi.fetchTable('Publics').catch(() => ({id:[], libelle:[], Libelle:[], 'Libellé':[]})),
-      grist.docApi.fetchTable('Degres').catch(() => ({id:[], nom_deg:[]})),
+      fetchDegresTable(),
     ]);
 
     const toRows = t => (t.id||[]).map((id,i) => {
@@ -964,7 +1051,6 @@ grist.onRecords(async (records) => {
     const cRows = toRows(contacts);
     const pRows = toRows(publics);
     const dRows = toRows(degres);
-    console.debug('[widget-cartes] Degres rows', dRows);
 
     const simpleLabel = r => r.libelle || r.Libelle || r['Libellé'] || '';
     const structLabel = r => r.code || r.Code || r.libelle || r.Libelle || r['Libellé'] || '';
@@ -1005,6 +1091,7 @@ grist.onRecords(async (records) => {
     window.CONTACT_VALUES = CONTACT_OPTIONS.map(o => o.label);
     window.PUBLIC_VALUES = PUBLIC_OPTIONS.map(o => o.label);
     window.DEGRE_VALUES = DEGRE_OPTIONS.map(o => o.label);
+    if (!window.DEGRE_VALUES.length) console.warn('[widget-cartes] Aucune valeur chargée pour Degres.nom_deg.');
 
     ALL = records.map(r => ({ id: r.id, ...r }));
     ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'], ACTION_COL);
