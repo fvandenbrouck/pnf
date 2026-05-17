@@ -506,6 +506,7 @@ html, body {
   <div class="tb-sel"><select id="f-axe"    onchange="applyFilters()"><option value="">Tous les axes</option></select></div>
   <div class="tb-sel"><select id="f-volet"  onchange="applyFilters()"><option value="">Tous les volets</option></select></div>
   <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Toutes les structures</option></select></div>
+  <div class="tb-sel"><select id="f-public" onchange="applyFilters()"><option value="">Tous les publics</option></select></div>
   <div class="tb-sel"><select id="f-modal"  onchange="applyFilters()"><option value="">Toutes les modalités</option></select></div>
   <button class="btn-reset" onclick="resetFilters()" title="Réinitialiser">✕</button>
   <button class="btn-new" onclick="openCreateModal()">+ Inscrire une action</button>
@@ -585,7 +586,24 @@ function resolveList(ids, map) {
 }
 
 function publicLabelFromRow(r) {
-  return firstText(r, ['libelle', 'Libelle', 'Libellé', 'label', 'Label', 'nom', 'Nom']);
+  return firstText(r, ['Libellé', 'libelle', 'Libelle', 'label', 'Label', 'nom', 'Nom']);
+}
+
+function buildPublicMap(rows) {
+  const entries = [];
+  const add = (k, label) => {
+    const key = String(k ?? '').trim();
+    if (key && label) entries.push([key, label]);
+  };
+  rows.forEach(r => {
+    const label = publicLabelFromRow(r);
+    if (!label) return;
+    add(r.id, label);
+    add(`Publics[${r.id}]`, label);
+    add(`R,Publics,${r.id}`, label);
+    add(label, label);
+  });
+  return Object.fromEntries(entries);
 }
 
 function publicValue(v) {
@@ -829,7 +847,7 @@ grist.onRecords(async (records) => {
     STRUCT_MAP = Object.fromEntries(sRows.map(r => [r.id, r.code || r.Code || r.libelle || r.Libelle || r['Libellé'] || '']));
     MODAL_MAP  = Object.fromEntries(mRows.map(r => [r.id, r.libelle || r.Libelle || r['Libellé'] || '']));
     CONT_MAP   = Object.fromEntries(cRows.map(r => [r.id, contactLabelFromRow(r)]).filter(([,v]) => v));
-    PUBLIC_MAP = Object.fromEntries(pRows.map(r => [r.id, publicLabelFromRow(r)]).filter(([,v]) => v));
+    PUBLIC_MAP = buildPublicMap(pRows);
 
     window.VOLET_VALUES  = [...new Set(vRows.map(r => r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
     window.AXE_VALUES    = [...new Set(aRows.map(r => r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
@@ -876,7 +894,31 @@ function buildFilters() {
     const v = r.id_structure;
     return Array.isArray(v) ? v : [v];
   }, true);
+  // Le filtre Publics doit provenir de la table de référence Publics,
+  // pas seulement des publics déjà utilisés par les actions.
+  fillFromValues('f-public', window.PUBLIC_VALUES || []);
   fillFromData('f-modal',  r => r.id_modalite);
+}
+
+function fillFromValues(selId, values) {
+  const sel = document.getElementById(selId);
+  if (!sel) return;
+  const cur = sel.value;
+  while (sel.options.length > 1) sel.remove(1);
+  const seen = new Set();
+  (values || []).forEach(v => {
+    const s = String(v || '').trim();
+    if (!s || seen.has(s)) return;
+    seen.add(s);
+    const o = document.createElement('option');
+    o.value = s;
+    o.textContent = s;
+    sel.appendChild(o);
+  });
+  const opts = Array.from(sel.options).slice(1).sort((a,b)=>a.text.localeCompare(b.text, 'fr', {numeric:true}));
+  while (sel.options.length > 1) sel.remove(1);
+  opts.forEach(o => sel.appendChild(o));
+  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
 }
 
 function fillFromData(selId, getter, isList) {
@@ -908,6 +950,7 @@ function applyFilters() {
   const volet  = document.getElementById('f-volet').value;
   const struct = document.getElementById('f-struct').value;
   const modal  = document.getElementById('f-modal').value;
+  const pub    = document.getElementById('f-public').value;
   const search = document.getElementById('f-search').value.toLowerCase();
 
   // Les champs arrivent en texte résolu → comparaison directe en chaîne
@@ -926,6 +969,7 @@ function applyFilters() {
     if (!matchText(a.id_volet,    volet))   return false;
     if (!matchText(a.id_modalite, modal))   return false;
     if (!matchList(a.id_structure, struct)) return false;
+    if (!matchList(publicValues(a), pub)) return false;
     if (search && !(a.titre||'').toLowerCase().includes(search) &&
                   !(a.objectif||'').toLowerCase().includes(search) &&
                   !publicValues(a).join(' ').toLowerCase().includes(search) &&
@@ -940,7 +984,7 @@ function applyFilters() {
 }
 
 function resetFilters() {
-  ['f-axe','f-volet','f-struct','f-modal'].forEach(id =>
+  ['f-axe','f-volet','f-struct','f-public','f-modal'].forEach(id =>
     document.getElementById(id).value = '');
   document.getElementById('f-search').value = '';
   applyFilters();

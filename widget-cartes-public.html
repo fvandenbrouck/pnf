@@ -482,6 +482,8 @@ html, body {
 let ALL = [], FILTERED = [];
 let ACTION_AXE_MAP = {};
 let ACTION_AXE_MAP_READY = false;
+let PUBLIC_MAP = {};
+let PUBLIC_VALUES = [];
 let selectedId = null;
 
 const ROMAN = {I:1,II:2,III:3,IV:4,V:5,VI:6,VII:7,VIII:8};
@@ -555,6 +557,42 @@ function cleanContactName(v) {
   // Évite d'afficher un identifiant technique si Grist ne fournit pas le libellé de référence.
   if (/^\d+$/.test(s)) return '';
   return s;
+}
+
+function publicLabelFromRow(r) {
+  return firstRowText(r, ['Libellé', 'libelle', 'Libelle', 'label', 'Label', 'nom', 'Nom']);
+}
+
+function buildPublicMap(rows) {
+  const entries = [];
+  const add = (k, label) => {
+    const key = String(k ?? '').trim();
+    if (key && label) entries.push([key, label]);
+  };
+  rows.forEach(r => {
+    const label = publicLabelFromRow(r);
+    if (!label) return;
+    add(r.id, label);
+    add(`Publics[${r.id}]`, label);
+    add(`R,Publics,${r.id}`, label);
+    add(label, label);
+  });
+  return Object.fromEntries(entries);
+}
+
+function publicValue(v) {
+  if (v === null || v === undefined || v === '') return '';
+  if (Array.isArray(v)) return asList(v).map(publicValue).filter(Boolean).join(', ');
+  if (typeof v === 'object') {
+    const label = publicLabelFromRow(v) || cleanDisplay(v);
+    return PUBLIC_MAP[label] || label;
+  }
+  const key = String(v || '').trim();
+  return PUBLIC_MAP[key] || key;
+}
+
+function publicList(a) {
+  return asList(get(a, 'id_publics')).map(publicValue).flatMap(v => String(v || '').split(/\s*,\s*/)).map(v => v.trim()).filter(Boolean);
 }
 
 function listText(a, key, cleaner = cleanDisplay) {
@@ -682,6 +720,23 @@ async function loadActionAxeMapIfAllowed() {
   }
 }
 
+async function loadPublicValuesIfAllowed() {
+  try {
+    if (!grist.docApi || !grist.docApi.fetchTable) return;
+    const table = await grist.docApi.fetchTable('Publics');
+    const rows = (table.id || []).map((id, i) => {
+      const row = { id };
+      Object.keys(table).forEach(k => { if (k !== 'id') row[k] = table[k][i]; });
+      return row;
+    });
+    PUBLIC_MAP = buildPublicMap(rows);
+    PUBLIC_VALUES = [...new Set(rows.map(publicLabelFromRow).filter(Boolean))]
+      .sort((a,b) => a.localeCompare(b, 'fr', {numeric:true}));
+  } catch(e) {
+    console.warn('Publics non accessible : le filtre Publics sera construit à partir des actions existantes.', e);
+  }
+}
+
 function cleanActionAxeKey(raw) {
   if (raw === null || raw === undefined) return '';
   if (Array.isArray(raw)) {
@@ -770,7 +825,29 @@ function buildFilters() {
   fillFilter('f-axe',    a => [firstText(a, 'id_axe')]);
   fillFilter('f-volet',  a => [firstText(a, 'id_volet')]);
   fillFilter('f-struct', a => listText(a, 'id_structure'));
-  fillFilter('f-public', a => listText(a, 'id_publics'));
+  fillFilterFromValues('f-public', PUBLIC_VALUES.length ? PUBLIC_VALUES : [...new Set(ALL.flatMap(publicList))]);
+}
+
+function fillFilterFromValues(selId, values) {
+  const sel = document.getElementById(selId);
+  const cur = sel.value;
+  while (sel.options.length > 1) sel.remove(1);
+
+  const seen = new Set();
+  (values || []).forEach(v => {
+    const s = String(v || '').trim();
+    if (!s || seen.has(s)) return;
+    seen.add(s);
+    const option = document.createElement('option');
+    option.value = s;
+    option.textContent = s;
+    sel.appendChild(option);
+  });
+
+  const opts = Array.from(sel.options).slice(1).sort((a,b) => a.text.localeCompare(b.text, 'fr', {numeric:true}));
+  while (sel.options.length > 1) sel.remove(1);
+  opts.forEach(o => sel.appendChild(o));
+  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
 }
 
 function fillFilter(selId, getter) {
@@ -816,7 +893,7 @@ function searchableText(a) {
     actionAxeText(a),
     firstText(a, 'id_modalite'),
     ...listText(a, 'id_structure'),
-    ...listText(a, 'id_publics'),
+    ...publicList(a),
     ...listText(a, 'degre')
   ].join(' ').toLowerCase();
 }
@@ -834,7 +911,7 @@ function applyFilters() {
     if (!matchText(firstText(a, 'id_axe'), axe)) return false;
     if (!matchText(firstText(a, 'id_volet'), volet)) return false;
     if (!matchList(listText(a, 'id_structure'), struct)) return false;
-    if (!matchList(listText(a, 'id_publics'), pub)) return false;
+    if (!matchList(publicList(a), pub)) return false;
     if (search && !searchableText(a).includes(search)) return false;
     return true;
   });
@@ -863,7 +940,7 @@ function openModal(a) {
   document.getElementById('modal-title').textContent = firstText(a, 'titre') || 'Sans titre';
   document.getElementById('modal-meta').textContent = [firstText(a, 'id_volet'), axeLib, periodeText(a)].filter(Boolean).join(' · ');
 
-  const publics = listText(a, 'id_publics');
+  const publics = publicList(a);
   const structs = listText(a, 'id_structure');
   const degres = listText(a, 'degre');
   const modalite = firstText(a, 'id_modalite');
@@ -906,7 +983,7 @@ function cardHtml(a, i) {
   const actionAxe = actionAxeText(a);
   const modalLib = firstText(a, 'id_modalite');
   const structs = listText(a, 'id_structure');
-  const publics = listText(a, 'id_publics');
+  const publics = publicList(a);
   const degres = listText(a, 'degre');
   const periode = periodeText(a);
   const gaia = firstText(a, 'code_gaia');
@@ -960,7 +1037,7 @@ grist.ready({ requiredAccess: 'full', columns: [] });
 grist.onRecords(async (records) => {
   showLoader(true);
   try {
-    await loadActionAxeMapIfAllowed();
+    await Promise.all([loadActionAxeMapIfAllowed(), loadPublicValuesIfAllowed()]);
     ALL = (records || []).map(r => ({ id: r.id, ...r }));
     buildFilters();
     applyFilters();
