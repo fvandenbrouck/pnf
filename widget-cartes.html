@@ -593,6 +593,16 @@ function publicLabelFromRow(r) {
   return firstText(r, ['Libellé', 'libelle', 'Libelle', 'label', 'Label', 'nom', 'Nom']);
 }
 
+// Table technique attendue : Degres ; colonne de libellé attendue : nom_deg.
+// Les autres clés sont uniquement des secours au cas où Grist renvoie un libellé historique.
+function degreLabelFromRow(r) {
+  return firstText(r, ['nom_deg', 'Nom_deg', 'NOM_DEG', 'Degres', 'Degrés', 'libelle', 'Libelle', 'Libellé', 'label', 'Label', 'nom', 'Nom']);
+}
+
+function degreLabelFromValue(v) {
+  return refListLabels(v, DEGRE_MAP, DEGRE_ID_BY_LABEL, '').join(', ');
+}
+
 function buildPublicMap(rows) {
   const entries = [];
   const add = (k, label) => {
@@ -962,8 +972,8 @@ grist.onRecords(async (records) => {
     const dRows = toRows(degres);
 
     const simpleLabel = r => r.libelle || r.Libelle || r['Libellé'] || '';
-    const degreLabel = r => r.nom_deg || r.Nom_deg || r.nomDeg || r.nom_degre || r.Degres || r['Degrés'] || simpleLabel(r);
     const structLabel = r => r.code || r.Code || r.libelle || r.Libelle || r['Libellé'] || '';
+    const degreLabel = degreLabelFromRow;
 
     VOLET_MAP  = Object.fromEntries(vRows.map(r => [String(r.id), simpleLabel(r)]));
     AXE_MAP    = Object.fromEntries(aRows.map(r => [String(r.id), simpleLabel(r)]));
@@ -984,7 +994,7 @@ grist.onRecords(async (records) => {
     MODAL_ID_BY_LABEL  = buildIdByLabel(mRows, simpleLabel);
     CONT_ID_BY_LABEL   = buildIdByLabel(cRows, contactLabelFromRow, r => [firstText(r, ['nom_prenom', 'NOM_PRENOM', 'Nom_prenom']), [firstText(r, ['PRENOM','Prenom','Prénom','prenom']), firstText(r, ['NOM','Nom','nom'])].filter(Boolean).join(' ').trim()]);
     PUBLIC_ID_BY_LABEL = buildIdByLabel(pRows, publicLabelFromRow);
-    DEGRE_ID_BY_LABEL = buildIdByLabel(dRows, degreLabel);
+    DEGRE_ID_BY_LABEL = buildIdByLabel(dRows, degreLabel, r => [r.nom_deg, r.Nom_deg, r.NOM_DEG, r.Degres, r['Degrés']]);
 
     VOLET_OPTIONS   = buildOptions(vRows, simpleLabel);
     AXE_OPTIONS     = buildOptions(aRows, simpleLabel);
@@ -1001,6 +1011,7 @@ grist.onRecords(async (records) => {
     window.CONTACT_VALUES = CONTACT_OPTIONS.map(o => o.label);
     window.PUBLIC_VALUES = PUBLIC_OPTIONS.map(o => o.label);
     window.DEGRE_VALUES = DEGRE_OPTIONS.map(o => o.label);
+    if (!window.DEGRE_VALUES.length) console.warn('[widget-cartes] Table Degres chargée, mais aucune valeur trouvée dans la colonne nom_deg.');
 
     ALL = records.map(r => ({ id: r.id, ...r }));
     ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'], ACTION_COL);
@@ -1237,7 +1248,7 @@ function buildModalForm(a) {
   const structOptions  = optionList(STRUCT_OPTIONS,  'id_structure', STRUCT_MAP, STRUCT_ID_BY_LABEL, 'Structures', true);
   const contactOptions = optionList(CONTACT_OPTIONS, 'id_contacts',  CONT_MAP,   CONT_ID_BY_LABEL,   'Contacts', true);
   const publicOptions  = optionList(PUBLIC_OPTIONS,  'id_publics',   PUBLIC_MAP, PUBLIC_ID_BY_LABEL, 'Publics', true);
-  const degreOptions   = optionList(DEGRE_OPTIONS,   'Degre',        DEGRE_MAP, DEGRE_ID_BY_LABEL, 'Degres', true);
+  const degreOptions   = optionList(DEGRE_OPTIONS,   'Degre',        DEGRE_MAP, DEGRE_ID_BY_LABEL, '', true);
   const actionVal = getActionAxe(a);
 
   body.innerHTML = `
@@ -1254,7 +1265,7 @@ function buildModalForm(a) {
         <label>Degré</label>
         <select id="m-degre">
           <option value="">—</option>
-          ${degreOptions.map(o=>`<option value="${esc(o.value)}"${checkedRefList(a.Degre, o, DEGRE_ID_BY_LABEL, DEGRE_MAP, 'Degres').replace(' checked',' selected')}>${esc(o.label)}</option>`).join('')}
+          ${degreOptions.map(o=>`<option value="${esc(o.value)}"${checkedRefList(a.Degre, o, DEGRE_ID_BY_LABEL, DEGRE_MAP, '').replace(' checked',' selected')}>${esc(o.label)}</option>`).join('')}
         </select>
       </div>
       <div class="mfield">
@@ -1415,7 +1426,7 @@ async function saveRecord() {
   put('id_structure',        makeRefList(snap.structures, STRUCT_ID_BY_LABEL, STRUCT_MAP, 'Structures'), 'structures');
   put('id_contacts',         makeRefList(snap.contacts, CONT_ID_BY_LABEL, CONT_MAP, 'Contacts'), 'contacts');
   put('id_publics',          makeRefList(snap.publics, PUBLIC_ID_BY_LABEL, PUBLIC_MAP, 'Publics'), 'publics');
-  put('Degre',               makeRefList(snap.degre ? [snap.degre] : [], DEGRE_ID_BY_LABEL, DEGRE_MAP, 'Degres'), 'degre');
+  put('Degre',               makeRefList(snap.degre ? [snap.degre] : [], DEGRE_ID_BY_LABEL, DEGRE_MAP, ''), 'degre');
   put('date_debut',          toTs(snap.debut), 'debut');
   put('date_fin',            toTs(snap.fin), 'fin');
 
@@ -1491,7 +1502,7 @@ function render() {
     const objectif = (a.objectif||'').replace(/\n/g,' ').trim();
     const periode  = a.periode || '';
     const gaia     = a.code_gaia || '';
-    const degre    = refListLabels(a.Degre, DEGRE_MAP, DEGRE_ID_BY_LABEL, 'Degres').join(', ');
+    const degre    = degreLabelFromValue(a.Degre);
     const delay    = Math.min(i * 18, 400);
     const isSel    = a.id === selectedId;
 
