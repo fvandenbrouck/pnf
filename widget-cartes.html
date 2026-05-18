@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF</title>
+<!-- Version v37 : contacts stables + Degres multisélection robuste -->
 <!-- Version v31 : écriture prudente des références Structure et Modalité -->
 <!-- Version v33 : dirty-fields tracking to avoid reference corruption -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
@@ -595,58 +596,29 @@ function publicLabelFromRow(r) {
 }
 
 function degreLabelFromRow(r) {
-  const direct = firstText(r, ['nom_deg', 'Nom_deg', 'NOM_DEG', 'Degres', 'Degrés', 'libelle', 'Libelle', 'Libellé', 'label', 'Label', 'nom', 'Nom']);
-  if (direct) return direct;
-  // Fallback volontairement large : la table Degres ne contient qu'une seule colonne métier.
-  // Si l'identifiant technique de la colonne diffère, on prend la première valeur textuelle non vide hors id.
-  for (const k of Object.keys(r || {})) {
-    if (k === 'id') continue;
-    const v = r[k];
-    if (v !== undefined && v !== null && String(v).trim()) return String(v).trim();
-  }
-  return '';
+  return firstText(r, ['nom_deg', 'Nom_deg', 'NOM_DEG', 'Degres', 'Degrés', 'libelle', 'Libelle', 'Libellé', 'label', 'Label', 'nom', 'Nom']);
 }
 
 function degreLabelFromValue(v) {
-  const ids = degreIdsFromValue(v);
-  if (ids.length) {
-    return ids.map(id => DEGRE_ID_TO_LABEL[id] || String(id)).filter(Boolean).join(', ');
-  }
-  // Fallback : Grist peut déjà envoyer les libellés résolus.
-  return asList(v).map(x => String(x || '').trim()).filter(x => x && x !== 'L').join(', ');
-}
-
-function degreLabelsFromValue(v) {
-  const labelText = degreLabelFromValue(v);
-  if (!labelText) return [];
-  return labelText.split(',').map(x => x.trim()).filter(Boolean);
+  const vals = asList(v);
+  if (!vals.length) return '';
+  const labels = vals.map(x => {
+    const key = String(x || '').trim();
+    return DEGRE_ID_TO_LABEL[x] || DEGRE_ID_TO_LABEL[key] || key;
+  }).filter(Boolean);
+  return labels.join(', ');
 }
 
 function getDegre(action) {
   if (!action) return '';
-  const keys = [DEGREE_ACTION_COL, 'Degre', 'Degres', 'id_degre', 'id_degres', 'Degré', 'Degrés', 'degre', 'degres'];
-  const seen = new Set();
+  const keys = ['Degre', 'Degres', 'id_degre', 'id_degres', 'Degré', 'Degrés', 'degre', 'degres'];
   for (const k of keys) {
-    if (!k || seen.has(k)) continue;
-    seen.add(k);
     if (Object.prototype.hasOwnProperty.call(action, k) &&
         action[k] !== undefined && action[k] !== null && action[k] !== '') {
       return action[k];
     }
   }
   return '';
-}
-
-function degreIdsFromValue(value) {
-  return asList(value).map(v => {
-    const raw = String(v || '').trim();
-    if (!raw || raw === 'L') return '';
-    if (/^\d+$/.test(raw) && DEGRE_ID_TO_LABEL[raw]) return raw;
-    if (DEGRE_LABEL_TO_ID[raw]) return String(DEGRE_LABEL_TO_ID[raw]);
-    const cleaned = cleanInvalidRefText(raw);
-    if (DEGRE_LABEL_TO_ID[cleaned]) return String(DEGRE_LABEL_TO_ID[cleaned]);
-    return '';
-  }).filter(Boolean);
 }
 
 function publicValue(v) {
@@ -722,6 +694,15 @@ function contactIdsFromValue(value) {
 
     const withoutEmail = raw.replace(/<[^>]+>/g, '').trim();
     return CONTACT_LABEL_TO_ID[withoutEmail] || '';
+  }).filter(Boolean);
+}
+
+function degreIdsFromValue(value) {
+  return asList(value).map(v => {
+    const raw = String(v || '').trim();
+    if (/^\d+$/.test(raw) && DEGRE_ID_TO_LABEL[raw]) return raw;
+    const label = DEGRE_ID_TO_LABEL[raw] || raw;
+    return DEGRE_LABEL_TO_ID[label] || '';
   }).filter(Boolean);
 }
 
@@ -973,7 +954,9 @@ grist.onRecords(async (records) => {
     window.CONTACT_VALUES = CONTACT_OPTIONS.map(o => o.label);
     window.PUBLIC_VALUES = [...new Set(pRows.map(publicLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
 
-    // Degrés : table technique attendue = Degres ; colonne de libellé attendue = nom_deg
+    // Degrés : table technique attendue = Degres ; colonne de libellé attendue = nom_deg.
+    // Le fichier widget-cartes_degres.html fonctionnel utilisait les libellés issus de nom_deg.
+    // Ici on garde le même principe pour l'affichage, mais les cases portent les ids Grist.
     DEGRE_ID_TO_LABEL = Object.fromEntries(dRows
       .map(r => [String(r.id), degreLabelFromRow(r)])
       .filter(([,v]) => v));
@@ -981,26 +964,23 @@ grist.onRecords(async (records) => {
       .map(r => [degreLabelFromRow(r), String(r.id)])
       .filter(([k]) => k));
     DEGRE_OPTIONS = dRows
-      .map(r => ({ value: degreLabelFromRow(r), label: degreLabelFromRow(r), id: String(r.id || '').trim() }))
+      .map(r => ({ id: String(r.id || '').trim(), label: degreLabelFromRow(r) }))
       .filter(o => o.id && o.label)
       .sort((a,b)=>a.label.localeCompare(b.label,'fr', {numeric:true}));
 
-    // Sécurité opérationnelle : la table Degres contient normalement deux lignes
-    // (id 1 = Premier degré ; id 2 = Second degré). Si fetchTable('Degres')
-    // renvoie une table vide dans le sandbox du widget, on conserve quand même
-    // une interface modifiable avec des ids Grist valides dans ce document.
+    // Garde-fou : si le sandbox ne renvoie pas Degres, on conserve une interface modifiable.
+    // À utiliser seulement si les deux lignes de Degres ont bien les ids 1 et 2.
     if (!DEGRE_OPTIONS.length) {
-      console.warn('[widget-cartes] Table Degres vide ou non lisible ; fallback ids 1/2 utilisé.');
+      console.warn('[widget-cartes] Degres non chargée ; fallback ids 1/2 utilisé.');
+      DEGRE_OPTIONS = [
+        {id: '1', label: 'Premier degré'},
+        {id: '2', label: 'Second degré'},
+      ];
       DEGRE_ID_TO_LABEL = {'1': 'Premier degré', '2': 'Second degré'};
       DEGRE_LABEL_TO_ID = {'Premier degré': '1', 'Second degré': '2'};
-      DEGRE_OPTIONS = [
-        {value: 'Premier degré', label: 'Premier degré', id: '1'},
-        {value: 'Second degré', label: 'Second degré', id: '2'},
-      ];
     }
-
     window.DEGRE_VALUES = DEGRE_OPTIONS.map(o => o.label);
-    console.info('[widget-cartes] Degres chargés', DEGRE_OPTIONS);
+    console.info('[widget-cartes] Options Degres', DEGRE_OPTIONS);
 
     ALL = records.map(r => ({ id: r.id, ...r }));
     ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'], ACTION_COL);
@@ -1234,8 +1214,14 @@ function buildModalForm(a) {
       <div class="mfield">
         <label>Degré</label>
         <div class="mchips" id="m-degres">
-          ${(DEGRE_OPTIONS||[]).map(o=>`<label class="mchip"><input type="checkbox" value="${esc(o.label)}"${checked(degreLabelsFromValue(getDegre(a)), o.label)}><span>${esc(o.label)}</span></label>`).join('')}
-          ${!(DEGRE_OPTIONS||[]).length ? '<span style="font-size:11px;color:#8a8070;padding:4px 8px;">Aucun degré chargé</span>' : ''}
+          ${(DEGRE_OPTIONS && DEGRE_OPTIONS.length ? DEGRE_OPTIONS : [
+            {id: '1', label: 'Premier degré'},
+            {id: '2', label: 'Second degré'}
+          ]).map(o=>{
+            const id = String(o.id || '').trim();
+            const label = String(o.label || '').trim();
+            return `<label class="mchip"><input type="checkbox" value="${esc(id)}"${checked(degreIdsFromValue(getDegre(a)), id)}><span>${esc(label)}</span></label>`;
+          }).join('')}
         </div>
       </div>
       <div class="mfield">
@@ -1450,11 +1436,8 @@ async function saveRecord() {
     .filter(Boolean)
     .filter(v => /^\d+$/.test(v));
   const publicLabels = [...document.querySelectorAll('#m-publics input:checked')].map(c=>c.value);
-  const degreLabels = [...document.querySelectorAll('#m-degres input:checked')]
+  const degreIds = [...document.querySelectorAll('#m-degres input:checked')]
     .map(c=>String(c.value || '').trim())
-    .filter(Boolean);
-  const degreIds = degreLabels
-    .map(label => DEGRE_LABEL_TO_ID[label] || '')
     .filter(Boolean)
     .filter(v => /^\d+$/.test(v));
 
@@ -1519,7 +1502,7 @@ async function saveRecord() {
   if (formFieldChanged('contacts', contactIds)) {
     fields[CONTACT_ACTION_COL] = ['L', ...contactIds.map(Number)];
   }
-  if (formFieldChanged('degres', degreLabels)) {
+  if (formFieldChanged('degres', degreIds)) {
     fields[DEGREE_ACTION_COL] = ['L', ...degreIds.map(Number)];
   }
 
