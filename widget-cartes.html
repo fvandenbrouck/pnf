@@ -480,6 +480,51 @@ html, body {
   border-color: var(--navy);
 }
 
+
+/* Ajout rapide d'un contact à partir d'une adresse prénom.nom@suffixe */
+.new-contact-box {
+  border: 1.5px dashed var(--border);
+  border-radius: 8px;
+  background: rgba(247,245,242,.65);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+.new-contact-line {
+  display: grid;
+  grid-template-columns: minmax(90px,1fr) auto minmax(90px,1fr) auto minmax(130px,1.2fr);
+  gap: 6px;
+  align-items: center;
+}
+.new-contact-line input,
+.new-contact-box select {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--white);
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  outline: none;
+}
+.new-contact-line input:focus,
+.new-contact-box select:focus { border-color: var(--navy); }
+.new-contact-sep {
+  font-family: 'DM Mono', monospace;
+  color: var(--ink3);
+  font-size: 13px;
+  text-align: center;
+}
+.new-contact-help {
+  font-size: 10.5px;
+  color: var(--ink3);
+  line-height: 1.45;
+}
+@media (max-width: 640px) {
+  .new-contact-line { grid-template-columns: 1fr; }
+  .new-contact-sep { display: none; }
+}
+
 .modal-foot {
   padding: 14px 22px;
   border-top: 1px solid var(--border);
@@ -754,6 +799,131 @@ function contactIdsFromValue(value) {
     const withoutEmail = raw.replace(/<[^>]+>/g, '').trim();
     return CONTACT_LABEL_TO_ID[withoutEmail] || '';
   }).filter(Boolean);
+}
+
+
+function titleCaseName(s) {
+  return String(s || '')
+    .trim()
+    .toLocaleLowerCase('fr-FR')
+    .replace(/(^|[\s\-'])\p{L}/gu, m => m.toLocaleUpperCase('fr-FR'));
+}
+
+function upperName(s) {
+  return String(s || '').trim().toLocaleUpperCase('fr-FR');
+}
+
+function cleanEmailPart(s) {
+  return String(s || '')
+    .trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9.-]/g, '')
+    .replace(/\.+/g, '.')
+    .replace(/^-+|-+$/g, '')
+    .replace(/^\.+|\.+$/g, '');
+}
+
+function cleanEmailSuffix(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^@+/, '')
+    .replace(/\s+/g, '')
+    .replace(/[^a-z0-9.-]/g, '')
+    .replace(/\.+/g, '.')
+    .replace(/^\.+|\.+$/g, '');
+}
+
+function readNewContactDraft() {
+  const byId = id => document.getElementById(id);
+  const prenomRaw = String(byId('m-new-contact-prenom')?.value || '').trim();
+  const nomRaw = String(byId('m-new-contact-nom')?.value || '').trim();
+  const suffixRaw = String(byId('m-new-contact-suffix')?.value || '').trim();
+  const structure = String(byId('m-new-contact-structure')?.value || '').trim();
+  const hasAny = Boolean(prenomRaw || nomRaw || suffixRaw || structure);
+  if (!hasAny) return null;
+
+  const prenomEmail = cleanEmailPart(prenomRaw);
+  const nomEmail = cleanEmailPart(nomRaw);
+  const suffix = cleanEmailSuffix(suffixRaw);
+  if (!prenomRaw || !nomRaw || !suffix || !structure) {
+    throw new Error('Pour ajouter un nouveau contact, renseigner le prénom, le nom, le suffixe de mail et la structure.');
+  }
+  if (!prenomEmail || !nomEmail || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(suffix)) {
+    throw new Error('Adresse mail invalide : vérifier prénom, nom et suffixe. Exemple attendu : prenom.nom@igesr.gouv.fr');
+  }
+
+  const prenom = titleCaseName(prenomRaw);
+  const nom = upperName(nomRaw);
+  const email = `${prenomEmail}.${nomEmail}@${suffix}`;
+  return {
+    prenom,
+    nom,
+    email,
+    structure,
+    nomPrenom: `${nom} ${prenom}`.trim()
+  };
+}
+
+function registerContactLocally(id, contact) {
+  const sid = String(id || '').trim();
+  if (!sid || !contact) return;
+  const label = `${contact.nomPrenom} <${contact.email}>`;
+  CONT_MAP[sid] = label;
+  CONT_MAP[label] = label;
+  CONT_MAP[contact.nomPrenom] = label;
+  CONT_MAP[contact.email] = label;
+  CONT_MAP[contact.email.toLowerCase()] = label;
+  CONTACT_LABEL_TO_ID[label] = sid;
+  CONTACT_LABEL_TO_ID[contact.nomPrenom] = sid;
+  CONTACT_LABEL_TO_ID[contact.email] = sid;
+  CONTACT_LABEL_TO_ID[contact.email.toLowerCase()] = sid;
+  if (!CONTACT_OPTIONS.some(o => String(o.value) === sid)) {
+    CONTACT_OPTIONS.push({value: sid, label});
+    CONTACT_OPTIONS.sort((a,b)=>a.label.localeCompare(b.label,'fr'));
+  }
+}
+
+async function ensureNewContactIdFromDraft() {
+  const draft = readNewContactDraft();
+  if (!draft) return '';
+
+  const existingId = CONTACT_LABEL_TO_ID[draft.email.toLowerCase()] || CONTACT_LABEL_TO_ID[draft.email];
+  if (existingId) return String(existingId);
+
+  const fields = {
+    'Nom Prénom': draft.nomPrenom,
+    NOM: draft.nom,
+    PRENOM: draft.prenom,
+    Email: draft.email,
+    Structure: draft.structure,
+  };
+
+  const result = await grist.docApi.applyUserActions([
+    ['AddRecord', 'Contacts', null, fields]
+  ]);
+  let newId = Array.isArray(result) ? result[0] : result;
+  if (Array.isArray(newId)) newId = newId[0];
+  if (!newId || !/^\d+$/.test(String(newId))) {
+    // Secours : relire la table Contacts et retrouver l'adresse créée.
+    const contacts = await grist.docApi.fetchTable('Contacts');
+    const ids = contacts.id || [];
+    const emails = contacts.Email || contacts.EMAIL || contacts.email || [];
+    for (let i = 0; i < ids.length; i++) {
+      if (String(emails[i] || '').trim().toLowerCase() === draft.email.toLowerCase()) {
+        newId = ids[i];
+        break;
+      }
+    }
+  }
+  if (!newId || !/^\d+$/.test(String(newId))) {
+    throw new Error('Le contact a peut-être été créé, mais son identifiant Grist n’a pas pu être récupéré.');
+  }
+
+  registerContactLocally(newId, draft);
+  return String(newId);
 }
 
 function degreIdsFromValue(value) {
@@ -1423,6 +1593,25 @@ function buildModalForm(a) {
       </div>
     </div>
     <div class="mfield full">
+      <label>Ajouter un contact s'il n'existe pas déjà</label>
+      <div class="new-contact-box">
+        <div class="new-contact-line">
+          <input type="text" id="m-new-contact-prenom" placeholder="prenom" autocomplete="off">
+          <span class="new-contact-sep">.</span>
+          <input type="text" id="m-new-contact-nom" placeholder="nom" autocomplete="off">
+          <span class="new-contact-sep">@</span>
+          <input type="text" id="m-new-contact-suffix" placeholder="igesr.gouv.fr" autocomplete="off">
+        </div>
+        <select id="m-new-contact-structure">
+          <option value="">Structure du contact…</option>
+          ${structOptions.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('')}
+        </select>
+        <div class="new-contact-help">
+          Si l'adresse n'existe pas dans Contacts, le widget crée automatiquement une ligne : NOM, PRENOM, Email, Structure, puis l'ajoute à la sélection Contacts de l'action.
+        </div>
+      </div>
+    </div>
+    <div class="mfield full">
       <label>Publics cibles</label>
       <div class="mchips" id="m-publics">
         ${publicOptions.map(v => `<label class="mchip"><input type="checkbox" value="${esc(v)}"${checked(selectedPublics, v)}><span>${esc(v)}</span></label>`).join('')}
@@ -1463,6 +1652,10 @@ function attachDirtyTracking() {
 
   document.querySelectorAll('#m-structs input').forEach(el => el.addEventListener('change', () => markDirty('structures')));
   document.querySelectorAll('#m-contacts input').forEach(el => el.addEventListener('change', () => markDirty('contacts')));
+  ['#m-new-contact-prenom', '#m-new-contact-nom', '#m-new-contact-suffix', '#m-new-contact-structure'].forEach(sel => {
+    const el = document.querySelector(sel);
+    if (el) el.addEventListener(sel === '#m-new-contact-structure' ? 'change' : 'input', () => markDirty('contacts'));
+  });
   document.querySelectorAll('#m-publics input').forEach(el => el.addEventListener('change', () => markDirty('publics')));
   document.querySelectorAll('#m-degres input').forEach(el => el.addEventListener('change', () => markDirty('degres')));
 }
@@ -1482,6 +1675,10 @@ function readFormSnapshot() {
     fin: String(byId('m-fin')?.value || '').trim(),
     structures: checkedValues('#m-structs'),
     contacts: checkedValues('#m-contacts'),
+    new_contact_prenom: String(byId('m-new-contact-prenom')?.value || '').trim(),
+    new_contact_nom: String(byId('m-new-contact-nom')?.value || '').trim(),
+    new_contact_suffix: String(byId('m-new-contact-suffix')?.value || '').trim(),
+    new_contact_structure: String(byId('m-new-contact-structure')?.value || '').trim(),
     publics: checkedValues('#m-publics'),
     degres: checkedValues('#m-degres'),
   };
@@ -1563,7 +1760,7 @@ async function saveRecord() {
   // En édition, on n'envoie que les champs réellement modifiés ; sinon Grist peut transformer
   // une référence saine en erreur rouge si on lui renvoie son libellé d'affichage.
   const structLabels = [...document.querySelectorAll('#m-structs input:checked')].map(c=>c.value);
-  const contactIds = [...document.querySelectorAll('#m-contacts input:checked')]
+  let contactIds = [...document.querySelectorAll('#m-contacts input:checked')]
     .map(c=>String(c.value || '').trim())
     .filter(Boolean)
     .filter(v => /^\d+$/.test(v));
@@ -1596,6 +1793,20 @@ async function saveRecord() {
   }
 
   const toTs = v => v ? Math.floor(new Date(v + 'T12:00:00').getTime()/1000) : null;
+
+  let newContactId = '';
+  try {
+    newContactId = await ensureNewContactIdFromDraft();
+  } catch (e) {
+    msg.textContent = '✗ Erreur contact : ' + e.message;
+    msg.className = 'msg-save err';
+    btn.disabled = false;
+    return;
+  }
+  if (newContactId) {
+    contactIds = Array.from(new Set([...contactIds, String(newContactId)]));
+    if (DIRTY_FORM) DIRTY_FORM.add('contacts');
+  }
 
   const fields = {};
 
