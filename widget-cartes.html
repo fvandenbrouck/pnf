@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF</title>
+<!-- Version v31 : écriture prudente des références Structure et Modalité -->
 <!-- Version v30 : hardcode Contacts column + robust contact/degre display -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -1268,6 +1269,52 @@ function buildModalForm(a) {
 }
 
 // ── Enregistrer les modifications dans Grist ──────────────────────────────
+function valueIdFromMap(map, value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  if (/^\d+$/.test(raw) && map && map[raw]) return raw;
+  for (const [id, label] of Object.entries(map || {})) {
+    if (String(label || '').trim() === raw) return String(id);
+  }
+  return '';
+}
+
+function valueLabelFromMap(map, value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  return (map && map[raw]) ? String(map[raw]).trim() : raw;
+}
+
+function listLabelsFromMap(map, values) {
+  return asList(values).map(v => valueLabelFromMap(map, v)).filter(Boolean);
+}
+
+function idsFromLabels(map, values) {
+  return (values || [])
+    .map(v => valueIdFromMap(map, v))
+    .filter(Boolean)
+    .map(Number)
+    .filter(Number.isFinite);
+}
+
+function sameValues(a, b) {
+  const aa = [...(a || [])].map(v => String(v ?? '').trim()).filter(Boolean).sort((x,y)=>x.localeCompare(y, 'fr', {numeric:true}));
+  const bb = [...(b || [])].map(v => String(v ?? '').trim()).filter(Boolean).sort((x,y)=>x.localeCompare(y, 'fr', {numeric:true}));
+  return aa.length === bb.length && aa.every((v, i) => v === bb[i]);
+}
+
+function putIfChanged(fields, col, value, oldValue, newValue) {
+  if (CURRENT_MODE === 'create' || String(oldValue ?? '') !== String(newValue ?? '')) {
+    fields[col] = value;
+  }
+}
+
+function putListIfChanged(fields, col, value, oldValues, newValues) {
+  if (CURRENT_MODE === 'create' || !sameValues(oldValues, newValues)) {
+    fields[col] = value;
+  }
+}
+
 async function saveRecord() {
   if (!CURRENT_ACTION && CURRENT_MODE !== 'create') return;
   const btn = document.getElementById('btn-save');
@@ -1276,14 +1323,30 @@ async function saveRecord() {
   msg.textContent = CURRENT_MODE === 'create' ? 'Inscription…' : 'Enregistrement…';
   msg.className = 'msg-save';
 
-  // Lire les valeurs du formulaire
-  const structs  = [...document.querySelectorAll('#m-structs input:checked')].map(c=>c.value);
-  const contacts = [...document.querySelectorAll('#m-contacts input:checked')].map(c=>c.value).filter(Boolean);
-  const publics  = [...document.querySelectorAll('#m-publics input:checked')].map(c=>c.value);
+  // Lire les valeurs du formulaire.
+  // Important : les champs de référence ne doivent pas être réécrits sous forme de libellés.
+  // En édition, on n'envoie que les champs réellement modifiés ; sinon Grist peut transformer
+  // une référence saine en erreur rouge si on lui renvoie son libellé d'affichage.
+  const structLabels = [...document.querySelectorAll('#m-structs input:checked')].map(c=>c.value);
+  const contactIds = [...document.querySelectorAll('#m-contacts input:checked')]
+    .map(c=>String(c.value || '').trim())
+    .filter(Boolean)
+    .filter(v => /^\d+$/.test(v));
+  const publicLabels = [...document.querySelectorAll('#m-publics input:checked')].map(c=>c.value);
+  const degreIds = [...document.querySelectorAll('#m-degres input:checked')]
+    .map(c=>String(c.value || '').trim())
+    .filter(Boolean)
+    .filter(v => /^\d+$/.test(v));
 
-  const degreIds = [...document.querySelectorAll('#m-degres input:checked')].map(c=>c.value).filter(Boolean);
+  const titreVal = document.getElementById('m-titre').value.trim();
+  const objectifVal = document.getElementById('m-objectif').value.trim();
+  const gaiaVal = document.getElementById('m-gaia').value.trim();
+  const voletLabel = document.getElementById('m-volet').value;
+  const axeLabel = document.getElementById('m-axe').value;
+  const modalLabel = document.getElementById('m-modal').value;
   const debutVal = document.getElementById('m-debut').value;
-  const finVal   = document.getElementById('m-fin').value;
+  const finVal = document.getElementById('m-fin').value;
+  const actionAxeRaw = document.getElementById('m-action-axe').value;
 
   const joursRaw = document.getElementById('m-jours').value.trim().replace(',', '.');
   let joursVal = null;
@@ -1299,25 +1362,57 @@ async function saveRecord() {
 
   const toTs = v => v ? Math.floor(new Date(v + 'T12:00:00').getTime()/1000) : null;
 
-  const fields = {
-    titre:               document.getElementById('m-titre').value.trim(),
-    objectif:            document.getElementById('m-objectif').value.trim(),
-    code_gaia:           document.getElementById('m-gaia').value.trim(),
-    journees_stagiaires: joursVal,
-    id_volet:            document.getElementById('m-volet').value,
-    id_axe:              document.getElementById('m-axe').value,
-    id_modalite:         document.getElementById('m-modal').value,
-    id_structure:        structs,
-    id_publics:          publics,
-    date_debut:          toTs(debutVal),
-    date_fin:            toTs(finVal),
-  };
-  fields[CONTACT_ACTION_COL] = ['L', ...contacts.map(Number).filter(Number.isFinite)];
-  fields[DEGREE_ACTION_COL] = ['L', ...degreIds.map(Number).filter(Number.isFinite)];
-  const actionAxeRaw = document.getElementById('m-action-axe').value;
-  fields[ACTION_COL] = actionAxeRaw ? (Number.isInteger(Number(actionAxeRaw)) ? Number(actionAxeRaw) : actionAxeRaw) : null;
+  const fields = {};
 
-  // Les dates et les valeurs numériques restent à null quand elles sont vides : aucune valeur par défaut n'est imposée.
+  // Champs simples.
+  putIfChanged(fields, 'titre', titreVal, CURRENT_ACTION?.titre || '', titreVal);
+  putIfChanged(fields, 'objectif', objectifVal, CURRENT_ACTION?.objectif || '', objectifVal);
+  putIfChanged(fields, 'code_gaia', gaiaVal, CURRENT_ACTION?.code_gaia || '', gaiaVal);
+  putIfChanged(fields, 'journees_stagiaires', joursRaw === '' ? null : joursVal, CURRENT_ACTION?.journees_stagiaires ?? '', joursRaw);
+  putIfChanged(fields, 'date_debut', toTs(debutVal), fmtDate(CURRENT_ACTION?.date_debut), debutVal);
+  putIfChanged(fields, 'date_fin', toTs(finVal), fmtDate(CURRENT_ACTION?.date_fin), finVal);
+
+  // Références simples : comparer les libellés, écrire les identifiants de ligne.
+  const oldVoletLabel = valueLabelFromMap(VOLET_MAP, CURRENT_ACTION?.id_volet);
+  const oldAxeLabel = valueLabelFromMap(AXE_MAP, CURRENT_ACTION?.id_axe);
+  const oldModalLabel = valueLabelFromMap(MODAL_MAP, CURRENT_ACTION?.id_modalite);
+
+  const voletId = valueIdFromMap(VOLET_MAP, voletLabel);
+  const axeId = valueIdFromMap(AXE_MAP, axeLabel);
+  const modalId = valueIdFromMap(MODAL_MAP, modalLabel);
+
+  putIfChanged(fields, 'id_volet', voletId ? Number(voletId) : null, oldVoletLabel, voletLabel);
+  putIfChanged(fields, 'id_axe', axeId ? Number(axeId) : null, oldAxeLabel, axeLabel);
+  putIfChanged(fields, 'id_modalite', modalId ? Number(modalId) : null, oldModalLabel, modalLabel);
+
+  // Références multiples : comparer les libellés, écrire ["L", ...ids].
+  const oldStructLabels = listLabelsFromMap(STRUCT_MAP, CURRENT_ACTION?.id_structure);
+  const structIds = idsFromLabels(STRUCT_MAP, structLabels);
+  putListIfChanged(fields, 'id_structure', ['L', ...structIds], oldStructLabels, structLabels);
+
+  const oldPublicLabels = publicValues(CURRENT_ACTION);
+  const publicIds = idsFromLabels(PUBLIC_MAP, publicLabels);
+  putListIfChanged(fields, 'id_publics', ['L', ...publicIds], oldPublicLabels, publicLabels);
+
+  const oldContactIds = contactIdsFromValue(getContactsValue(CURRENT_ACTION));
+  putListIfChanged(fields, CONTACT_ACTION_COL, ['L', ...contactIds.map(Number)], oldContactIds, contactIds);
+
+  const oldDegreIds = degreIdsFromValue(getDegre(CURRENT_ACTION));
+  putListIfChanged(fields, DEGREE_ACTION_COL, ['L', ...degreIds.map(Number)], oldDegreIds, degreIds);
+
+  const oldActionAxeId = actionAxeRefId(getActionAxe(CURRENT_ACTION));
+  if (CURRENT_MODE === 'create' || String(oldActionAxeId || '') !== String(actionAxeRaw || '')) {
+    fields[ACTION_COL] = actionAxeRaw ? Number(actionAxeRaw) : null;
+  }
+
+  if (CURRENT_MODE !== 'create' && Object.keys(fields).length === 0) {
+    msg.textContent = 'Aucune modification à enregistrer.';
+    msg.className = 'msg-save';
+    btn.disabled = false;
+    return;
+  }
+
+  console.debug('[widget-cartes] Champs envoyés à Grist', fields);
 
   try {
     if (CURRENT_MODE === 'create') {
@@ -1341,7 +1436,7 @@ async function saveRecord() {
     }
 
     msg.className = 'msg-save ok';
-    applyFilters();  // rafraîchir les cartes
+    applyFilters();
     setTimeout(() => {
       msg.textContent = '';
       closeModal();
