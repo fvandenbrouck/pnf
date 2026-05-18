@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF</title>
-<!-- Version v27 : affichage des contacts dans les cartes -->
 <!-- Version v26 : Degrés en sélection multiple -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -570,33 +569,6 @@ function firstText(row, keys) {
   return '';
 }
 
-function contactLabelFromRow(r) {
-  const nomPrenom = firstText(r, [
-    'nom_prenom', 'NOM_PRENOM', 'Nom_prenom',
-    'NOM Prénom', 'NOM Prenom', 'Nom Prénom', 'Nom Prenom',
-    'Nom_Prénom', 'Nom_Prenom', 'display', 'Display'
-  ]);
-  if (nomPrenom) return nomPrenom;
-
-  const prenom = firstText(r, ['PRENOM', 'Prenom', 'Prénom', 'prenom', 'first_name']);
-  const nom    = firstText(r, ['NOM', 'Nom', 'nom', 'last_name']);
-  const email  = firstText(r, ['EMAIL', 'Email', 'email', 'mail']);
-  const fullName = [prenom, nom].filter(Boolean).join(' ').trim() || nom || prenom;
-  return fullName || email || '';
-}
-
-function contactValue(v) {
-  const key = String(v || '').trim();
-  return CONT_MAP[v] || CONT_MAP[key] || key;
-}
-
-function contactValues(action) {
-  if (!action) return [];
-  const raw = action.id_contacts ?? action.contacts_pilotes ?? action.Contacts_pilotes ??
-              action['Contacts / pilotes'] ?? action.Contact ?? action.Contacts ?? action.contacts;
-  return asList(raw).map(contactValue).filter(v => v && v !== 'L');
-}
-
 // ── Init Grist ────────────────────────────────────────────────────────────
 grist.ready({ requiredAccess: 'full', columns: [] });
 
@@ -635,7 +607,7 @@ grist.onRecords(async (records) => {
     AXE_MAP    = Object.fromEntries(aRows.map(r => [r.id, r.libelle]));
     STRUCT_MAP = Object.fromEntries(sRows.map(r => [r.id, r.code]));
     MODAL_MAP  = Object.fromEntries(mRows.map(r => [r.id, r.libelle]));
-    CONT_MAP   = Object.fromEntries(cRows.map(r => [r.id, contactLabelFromRow(r)]).filter(([,v]) => v));
+    CONT_MAP   = Object.fromEntries(cRows.map(r => [r.id, r.nom_prenom]));
     // Degrés : table technique attendue = Degres ; colonne de libellé attendue = nom_deg
     DEGRE_ID_TO_LABEL = Object.fromEntries(dRows
       .map(r => [r.id, degreLabelFromRow(r)])
@@ -730,8 +702,7 @@ function applyFilters() {
     if (!matchText(a.id_modalite, modal))   return false;
     if (!matchList(a.id_structure, struct)) return false;
     if (search && !(a.titre||'').toLowerCase().includes(search) &&
-                  !(a.objectif||'').toLowerCase().includes(search) &&
-                  !contactValues(a).join(' ').toLowerCase().includes(search)) return false;
+                  !(a.objectif||'').toLowerCase().includes(search)) return false;
     return true;
   });
 
@@ -972,7 +943,7 @@ function render() {
     const num      = axeNum(axeLib);
     const band     = BANDS[num] || '';
     const structs  = Array.isArray(a.id_structure) ? a.id_structure : (a.id_structure ? [a.id_structure] : []);
-    const contacts = contactValues(a);
+    const contacts = Array.isArray(a.id_contacts)  ? a.id_contacts  : (a.id_contacts  ? [a.id_contacts]  : []);
     const objectif = (a.objectif||'').replace(/\n/g,' ').trim();
     const periode  = a.periode || '';
     const gaia     = a.code_gaia || '';
