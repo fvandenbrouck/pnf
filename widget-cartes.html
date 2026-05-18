@@ -595,7 +595,16 @@ function publicLabelFromRow(r) {
 }
 
 function degreLabelFromRow(r) {
-  return firstText(r, ['nom_deg', 'Nom_deg', 'NOM_DEG', 'Degres', 'Degrés', 'libelle', 'Libelle', 'Libellé', 'label', 'Label', 'nom', 'Nom']);
+  const direct = firstText(r, ['nom_deg', 'Nom_deg', 'NOM_DEG', 'Degres', 'Degrés', 'libelle', 'Libelle', 'Libellé', 'label', 'Label', 'nom', 'Nom']);
+  if (direct) return direct;
+  // Fallback volontairement large : la table Degres ne contient qu'une seule colonne métier.
+  // Si l'identifiant technique de la colonne diffère, on prend la première valeur textuelle non vide hors id.
+  for (const k of Object.keys(r || {})) {
+    if (k === 'id') continue;
+    const v = r[k];
+    if (v !== undefined && v !== null && String(v).trim()) return String(v).trim();
+  }
+  return '';
 }
 
 function degreLabelFromValue(v) {
@@ -605,6 +614,12 @@ function degreLabelFromValue(v) {
   }
   // Fallback : Grist peut déjà envoyer les libellés résolus.
   return asList(v).map(x => String(x || '').trim()).filter(x => x && x !== 'L').join(', ');
+}
+
+function degreLabelsFromValue(v) {
+  const labelText = degreLabelFromValue(v);
+  if (!labelText) return [];
+  return labelText.split(',').map(x => x.trim()).filter(Boolean);
 }
 
 function getDegre(action) {
@@ -960,16 +975,17 @@ grist.onRecords(async (records) => {
 
     // Degrés : table technique attendue = Degres ; colonne de libellé attendue = nom_deg
     DEGRE_ID_TO_LABEL = Object.fromEntries(dRows
-      .map(r => [r.id, degreLabelFromRow(r)])
+      .map(r => [String(r.id), degreLabelFromRow(r)])
       .filter(([,v]) => v));
     DEGRE_LABEL_TO_ID = Object.fromEntries(dRows
-      .map(r => [degreLabelFromRow(r), r.id])
+      .map(r => [degreLabelFromRow(r), String(r.id)])
       .filter(([k]) => k));
     DEGRE_OPTIONS = dRows
-      .map(r => ({ value: String(r.id || '').trim(), label: degreLabelFromRow(r) }))
-      .filter(o => o.value && o.label)
+      .map(r => ({ value: degreLabelFromRow(r), label: degreLabelFromRow(r), id: String(r.id || '').trim() }))
+      .filter(o => o.id && o.label)
       .sort((a,b)=>a.label.localeCompare(b.label,'fr', {numeric:true}));
     window.DEGRE_VALUES = DEGRE_OPTIONS.map(o => o.label);
+    console.info('[widget-cartes] Degres chargés', DEGRE_OPTIONS);
 
     ALL = records.map(r => ({ id: r.id, ...r }));
     ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'], ACTION_COL);
@@ -1203,7 +1219,8 @@ function buildModalForm(a) {
       <div class="mfield">
         <label>Degré</label>
         <div class="mchips" id="m-degres">
-          ${(DEGRE_OPTIONS||[]).map(o=>`<label class="mchip"><input type="checkbox" value="${esc(o.value)}"${checked(degreIdsFromValue(getDegre(a)), o.value)}><span>${esc(o.label)}</span></label>`).join('')}
+          ${(DEGRE_OPTIONS||[]).map(o=>`<label class="mchip"><input type="checkbox" value="${esc(o.label)}"${checked(degreLabelsFromValue(getDegre(a)), o.label)}><span>${esc(o.label)}</span></label>`).join('')}
+          ${!(DEGRE_OPTIONS||[]).length ? '<span style="font-size:11px;color:#8a8070;padding:4px 8px;">Aucun degré chargé</span>' : ''}
         </div>
       </div>
       <div class="mfield">
@@ -1418,8 +1435,11 @@ async function saveRecord() {
     .filter(Boolean)
     .filter(v => /^\d+$/.test(v));
   const publicLabels = [...document.querySelectorAll('#m-publics input:checked')].map(c=>c.value);
-  const degreIds = [...document.querySelectorAll('#m-degres input:checked')]
+  const degreLabels = [...document.querySelectorAll('#m-degres input:checked')]
     .map(c=>String(c.value || '').trim())
+    .filter(Boolean);
+  const degreIds = degreLabels
+    .map(label => DEGRE_LABEL_TO_ID[label] || '')
     .filter(Boolean)
     .filter(v => /^\d+$/.test(v));
 
@@ -1484,7 +1504,7 @@ async function saveRecord() {
   if (formFieldChanged('contacts', contactIds)) {
     fields[CONTACT_ACTION_COL] = ['L', ...contactIds.map(Number)];
   }
-  if (formFieldChanged('degres', degreIds)) {
+  if (formFieldChanged('degres', degreLabels)) {
     fields[DEGREE_ACTION_COL] = ['L', ...degreIds.map(Number)];
   }
 
