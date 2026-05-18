@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF</title>
-<!-- Version v41 : ajout contact visible avant la sélection des contacts -->
+<!-- Version v43 : ajout contact par Nom, Prénom, Email avec colonnes Contacts robustes -->
 <!-- Version v31 : écriture prudente des références Structure et Modalité -->
 <!-- Version v33 : dirty-fields tracking to avoid reference corruption -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
@@ -653,6 +653,7 @@ let ALL = [], FILTERED = [];
 let VOLET_MAP = {}, AXE_MAP = {}, ACTION_AXE_MAP = {}, STRUCT_MAP = {}, MODAL_MAP = {}, CONT_MAP = {}, PUBLIC_MAP = {};
 let DEGRE_ID_TO_LABEL = {}, DEGRE_LABEL_TO_ID = {}, DEGRE_OPTIONS = [];
 let CONTACT_LABEL_TO_ID = {}, CONTACT_OPTIONS = [];
+let CONTACT_COLS = { nomPrenom: 'Nom Prénom', nom: 'NOM', prenom: 'PRENOM', email: 'Email', structure: 'Structure' };
 let DEGREE_ACTION_COL = 'Degre';
 let CONTACT_ACTION_COL = 'Contacts';
 let ACTION_AXE_OPTIONS = [];
@@ -738,13 +739,14 @@ function contactLabelFromRow(r) {
   // Table Contacts attendue : Nom Prénom / NOM / PRENOM / Email / Structure.
   // On privilégie la colonne d'affichage « Nom Prénom », puis on reconstruit depuis PRENOM + NOM.
   const nomPrenom = firstText(r, [
+    CONTACT_COLS.nomPrenom,
     'Nom Prénom', 'Nom Prenom', 'NOM Prénom', 'NOM Prenom',
     'nom_prenom', 'NOM_PRENOM', 'Nom_prenom', 'Nom_Prenom',
     'display', 'Display'
   ]);
-  const prenom = firstText(r, ['PRENOM', 'Prenom', 'Prénom', 'prenom', 'first_name']);
-  const nom    = firstText(r, ['NOM', 'Nom', 'nom', 'last_name']);
-  const email  = firstText(r, ['Email', 'EMAIL', 'email', 'mail']);
+  const prenom = firstText(r, [CONTACT_COLS.prenom, 'PRENOM', 'Prenom', 'Prénom', 'prenom', 'first_name']);
+  const nom    = firstText(r, [CONTACT_COLS.nom, 'NOM', 'Nom', 'nom', 'last_name']);
+  const email  = firstText(r, [CONTACT_COLS.email, 'Email', 'EMAIL', 'email', 'mail']);
   const fullName = nomPrenom || [prenom, nom].filter(Boolean).join(' ').trim() || nom || prenom || email;
   return [fullName, email && fullName !== email ? `<${email}>` : ''].filter(Boolean).join(' ').trim();
 }
@@ -802,6 +804,29 @@ function contactIdsFromValue(value) {
 }
 
 
+function pickExistingColumn(table, candidates, fallback) {
+  const keys = new Set(Object.keys(table || {}));
+  for (const c of candidates) {
+    if (keys.has(c)) return c;
+  }
+  return fallback;
+}
+
+function contactTableFields(contact) {
+  const fields = {};
+  const setField = (key, value) => {
+    if (!key) return;
+    fields[key] = value;
+  };
+  setField(CONTACT_COLS.nomPrenom, contact.nomPrenom);
+  setField(CONTACT_COLS.nom, contact.nom);
+  setField(CONTACT_COLS.prenom, contact.prenom);
+  setField(CONTACT_COLS.email, contact.email);
+  setField(CONTACT_COLS.structure, contact.structure);
+  return fields;
+}
+
+
 function titleCaseName(s) {
   return String(s || '')
     .trim()
@@ -838,26 +863,24 @@ function cleanEmailSuffix(s) {
 
 function readNewContactDraft() {
   const byId = id => document.getElementById(id);
-  const prenomRaw = String(byId('m-new-contact-prenom')?.value || '').trim();
   const nomRaw = String(byId('m-new-contact-nom')?.value || '').trim();
-  const suffixRaw = String(byId('m-new-contact-suffix')?.value || '').trim();
+  const prenomRaw = String(byId('m-new-contact-prenom')?.value || '').trim();
+  const emailRaw = String(byId('m-new-contact-email')?.value || '').trim();
   const structure = String(byId('m-new-contact-structure')?.value || '').trim();
-  const hasAny = Boolean(prenomRaw || nomRaw || suffixRaw || structure);
+  const hasAny = Boolean(nomRaw || prenomRaw || emailRaw || structure);
   if (!hasAny) return null;
 
-  const prenomEmail = cleanEmailPart(prenomRaw);
-  const nomEmail = cleanEmailPart(nomRaw);
-  const suffix = cleanEmailSuffix(suffixRaw);
-  if (!prenomRaw || !nomRaw || !suffix || !structure) {
-    throw new Error('Pour ajouter un nouveau contact, renseigner le prénom, le nom, le suffixe de mail et la structure.');
-  }
-  if (!prenomEmail || !nomEmail || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(suffix)) {
-    throw new Error('Adresse mail invalide : vérifier prénom, nom et suffixe. Exemple attendu : prenom.nom@igesr.gouv.fr');
+  if (!nomRaw || !prenomRaw || !emailRaw || !structure) {
+    throw new Error('Pour ajouter un nouveau contact, renseigner le nom, le prénom, l’adresse email et la structure.');
   }
 
-  const prenom = titleCaseName(prenomRaw);
+  const email = emailRaw.toLowerCase().replace(/\s+/g, '');
+  if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(email)) {
+    throw new Error('Adresse email invalide. Exemple attendu : prenom.nom@igesr.gouv.fr');
+  }
+
   const nom = upperName(nomRaw);
-  const email = `${prenomEmail}.${nomEmail}@${suffix}`;
+  const prenom = titleCaseName(prenomRaw);
   return {
     prenom,
     nom,
@@ -893,13 +916,7 @@ async function ensureNewContactIdFromDraft() {
   const existingId = CONTACT_LABEL_TO_ID[draft.email.toLowerCase()] || CONTACT_LABEL_TO_ID[draft.email];
   if (existingId) return String(existingId);
 
-  const fields = {
-    'Nom Prénom': draft.nomPrenom,
-    NOM: draft.nom,
-    PRENOM: draft.prenom,
-    Email: draft.email,
-    Structure: draft.structure,
-  };
+  const fields = contactTableFields(draft);
 
   const result = await grist.docApi.applyUserActions([
     ['AddRecord', 'Contacts', null, fields]
@@ -910,7 +927,7 @@ async function ensureNewContactIdFromDraft() {
     // Secours : relire la table Contacts et retrouver l'adresse créée.
     const contacts = await grist.docApi.fetchTable('Contacts');
     const ids = contacts.id || [];
-    const emails = contacts.Email || contacts.EMAIL || contacts.email || [];
+    const emails = contacts[CONTACT_COLS.email] || contacts.Email || contacts.EMAIL || contacts.email || contacts.mail || [];
     for (let i = 0; i < ids.length; i++) {
       if (String(emails[i] || '').trim().toLowerCase() === draft.email.toLowerCase()) {
         newId = ids[i];
@@ -1128,6 +1145,14 @@ grist.onRecords(async (records) => {
       return row;
     });
 
+    CONTACT_COLS = {
+      nomPrenom: pickExistingColumn(contacts, ['Nom Prénom', 'Nom Prenom', 'NOM Prénom', 'NOM Prenom', 'nom_prenom', 'NOM_PRENOM'], 'Nom Prénom'),
+      nom: pickExistingColumn(contacts, ['NOM', 'Nom', 'nom'], 'NOM'),
+      prenom: pickExistingColumn(contacts, ['PRENOM', 'Prenom', 'Prénom', 'prenom'], 'PRENOM'),
+      email: pickExistingColumn(contacts, ['Email', 'EMAIL', 'email', 'mail'], 'Email'),
+      structure: pickExistingColumn(contacts, ['Structure', 'STRUCTURE', 'structure'], 'Structure'),
+    };
+
     const vRows = toRows(volets);
     const aRows = toRows(axes);
     const aaRows = toRows(actionsAxes);
@@ -1153,7 +1178,7 @@ grist.onRecords(async (records) => {
       const label = contactLabelFromRow(r);
       if (!label) return;
       const id = String(r.id);
-      const email = firstText(r, ['Email', 'EMAIL', 'email', 'mail']);
+      const email = firstText(r, [CONTACT_COLS.email, 'Email', 'EMAIL', 'email', 'mail']);
       CONT_MAP[id] = label;
       CONT_MAP[label] = label;
       CONTACT_LABEL_TO_ID[label] = id;
@@ -1590,18 +1615,16 @@ function buildModalForm(a) {
       <label>Ajouter un nouveau contact</label>
       <div class="new-contact-box">
         <div class="new-contact-line">
-          <input type="text" id="m-new-contact-prenom" placeholder="prenom" autocomplete="off">
-          <span class="new-contact-sep">.</span>
-          <input type="text" id="m-new-contact-nom" placeholder="nom" autocomplete="off">
-          <span class="new-contact-sep">@</span>
-          <input type="text" id="m-new-contact-suffix" placeholder="igesr.gouv.fr" autocomplete="off">
+          <input type="text" id="m-new-contact-nom" placeholder="Nom" autocomplete="off">
+          <input type="text" id="m-new-contact-prenom" placeholder="Prénom" autocomplete="off">
+          <input type="email" id="m-new-contact-email" placeholder="prenom.nom@igesr.gouv.fr" autocomplete="off">
         </div>
         <select id="m-new-contact-structure">
           <option value="">Structure du contact…</option>
           ${structOptions.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('')}
         </select>
         <div class="new-contact-help">
-          Si l'adresse existe déjà dans Contacts, le widget la réutilise. Sinon il crée NOM, PRENOM, Nom Prénom, Email et Structure, puis ajoute ce contact à l'action.
+          Si l'adresse existe déjà dans Contacts, le widget la réutilise. Sinon il crée Nom Prénom, NOM, PRENOM, Email et Structure, puis ajoute ce contact à l'action.
         </div>
       </div>
     </div>
@@ -1652,7 +1675,7 @@ function attachDirtyTracking() {
 
   document.querySelectorAll('#m-structs input').forEach(el => el.addEventListener('change', () => markDirty('structures')));
   document.querySelectorAll('#m-contacts input').forEach(el => el.addEventListener('change', () => markDirty('contacts')));
-  ['#m-new-contact-prenom', '#m-new-contact-nom', '#m-new-contact-suffix', '#m-new-contact-structure'].forEach(sel => {
+  ['#m-new-contact-nom', '#m-new-contact-prenom', '#m-new-contact-email', '#m-new-contact-structure'].forEach(sel => {
     const el = document.querySelector(sel);
     if (el) el.addEventListener(sel === '#m-new-contact-structure' ? 'change' : 'input', () => markDirty('contacts'));
   });
@@ -1677,7 +1700,7 @@ function readFormSnapshot() {
     contacts: checkedValues('#m-contacts'),
     new_contact_prenom: String(byId('m-new-contact-prenom')?.value || '').trim(),
     new_contact_nom: String(byId('m-new-contact-nom')?.value || '').trim(),
-    new_contact_suffix: String(byId('m-new-contact-suffix')?.value || '').trim(),
+    new_contact_email: String(byId('m-new-contact-email')?.value || '').trim(),
     new_contact_structure: String(byId('m-new-contact-structure')?.value || '').trim(),
     publics: checkedValues('#m-publics'),
     degres: checkedValues('#m-degres'),
