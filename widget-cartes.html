@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF</title>
+<!-- Version v29 : Contacts column + Degre multiselect -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -545,6 +546,9 @@ html, body {
 let ALL = [], FILTERED = [];
 let VOLET_MAP = {}, AXE_MAP = {}, ACTION_AXE_MAP = {}, STRUCT_MAP = {}, MODAL_MAP = {}, CONT_MAP = {}, PUBLIC_MAP = {};
 let DEGRE_ID_TO_LABEL = {}, DEGRE_LABEL_TO_ID = {};
+let CONTACT_LABEL_TO_ID = {}, CONTACT_OPTIONS = [];
+let DEGREE_ACTION_COL = 'Degre';
+let CONTACT_ACTION_COL = 'Contacts';
 let ACTION_AXE_OPTIONS = [];
 let ACTION_COL = 'id_action_referentiel';
 let selectedId = null;
@@ -663,6 +667,24 @@ function contactValues(action) {
   return asList(getContactsValue(action))
     .map(contactValue)
     .filter(Boolean);
+}
+
+function contactIdsFromValue(value) {
+  return asList(value).map(v => {
+    const raw = String(v || '').trim();
+    if (/^\d+$/.test(raw) && CONT_MAP[raw]) return raw;
+    const label = contactValue(v);
+    return CONTACT_LABEL_TO_ID[label] || CONTACT_LABEL_TO_ID[raw] || '';
+  }).filter(Boolean);
+}
+
+function degreIdsFromValue(value) {
+  return asList(value).map(v => {
+    const raw = String(v || '').trim();
+    if (/^\d+$/.test(raw) && DEGRE_ID_TO_LABEL[raw]) return raw;
+    const label = DEGRE_ID_TO_LABEL[raw] || raw;
+    return DEGRE_LABEL_TO_ID[label] || '';
+  }).filter(Boolean);
 }
 
 function firstRowText(row, keys) {
@@ -876,14 +898,29 @@ grist.onRecords(async (records) => {
       .sort((a,b) => String(a.value).localeCompare(String(b.value), 'fr', {numeric:true}));
     STRUCT_MAP = Object.fromEntries(sRows.map(r => [r.id, r.code || r.Code || r.libelle || r.Libelle || r['Libellé'] || '']));
     MODAL_MAP  = Object.fromEntries(mRows.map(r => [r.id, r.libelle || r.Libelle || r['Libellé'] || '']));
-    CONT_MAP   = Object.fromEntries(cRows.map(r => [r.id, contactLabelFromRow(r)]).filter(([,v]) => v));
+    CONT_MAP   = {};
+    CONTACT_LABEL_TO_ID = {};
+    CONTACT_OPTIONS = [];
+    cRows.forEach(r => {
+      const label = contactLabelFromRow(r);
+      if (!label) return;
+      const id = String(r.id);
+      const email = firstText(r, ['Email', 'EMAIL', 'email', 'mail']);
+      CONT_MAP[id] = label;
+      CONT_MAP[label] = label;
+      if (email) CONT_MAP[email] = label;
+      CONTACT_LABEL_TO_ID[label] = id;
+      if (email) CONTACT_LABEL_TO_ID[email] = id;
+      CONTACT_OPTIONS.push({value: id, label});
+    });
+    CONTACT_OPTIONS.sort((a,b)=>a.label.localeCompare(b.label,'fr'));
     PUBLIC_MAP = Object.fromEntries(pRows.map(r => [r.id, publicLabelFromRow(r)]).filter(([,v]) => v));
 
     window.VOLET_VALUES  = [...new Set(vRows.map(r => r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
     window.AXE_VALUES    = [...new Set(aRows.map(r => r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
     window.STRUCT_VALUES = [...new Set(sRows.map(r => r.code || r.Code || r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
     window.MODAL_VALUES  = [...new Set(mRows.map(r => r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
-    window.CONTACT_VALUES = [...new Set(cRows.map(contactLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
+    window.CONTACT_VALUES = CONTACT_OPTIONS.map(o => o.label);
     window.PUBLIC_VALUES = [...new Set(pRows.map(publicLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
 
     // Degrés : table technique attendue = Degres ; colonne de libellé attendue = nom_deg
@@ -898,6 +935,8 @@ grist.onRecords(async (records) => {
 
     ALL = records.map(r => ({ id: r.id, ...r }));
     ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'], ACTION_COL);
+    DEGREE_ACTION_COL = detectExistingColumn(ALL, ['Degre', 'Degres', 'id_degre', 'id_degres', 'Degré', 'Degrés', 'degre', 'degres'], DEGREE_ACTION_COL);
+    CONTACT_ACTION_COL = detectExistingColumn(ALL, ['Contacts', 'Contact', 'id_contacts', 'id_contact', 'contacts_pilotes', 'Contacts_pilotes', 'Contacts / pilotes', 'contacts', 'contact'], CONTACT_ACTION_COL);
 
     buildFilters();
     applyFilters();
@@ -1094,10 +1133,10 @@ function buildModalForm(a) {
   const axeOptions    = optionValues(window.AXE_VALUES, 'id_axe');
   const modalOptions  = optionValues(window.MODAL_VALUES, 'id_modalite');
   const structOptions = optionValues(window.STRUCT_VALUES, 'id_structure');
-  const contactOptions = (window.CONTACT_VALUES && window.CONTACT_VALUES.length)
-    ? window.CONTACT_VALUES
-    : uniqList('id_contacts').map(contactValue).filter(Boolean);
-  const selectedContacts = contactValues(a);
+  const contactOptions = (CONTACT_OPTIONS && CONTACT_OPTIONS.length)
+    ? CONTACT_OPTIONS
+    : (window.CONTACT_VALUES || []).map(v => ({value: CONTACT_LABEL_TO_ID[v] || v, label: v}));
+  const selectedContactIds = contactIdsFromValue(getContactsValue(a));
   const selectedPublics = publicValues(a);
   const publicOptions = (window.PUBLIC_VALUES && window.PUBLIC_VALUES.length)
     ? window.PUBLIC_VALUES
@@ -1116,13 +1155,12 @@ function buildModalForm(a) {
     <div class="modal-row">
       <div class="mfield">
         <label>Degré</label>
-        <select id="m-degre">
-          <option value="">—</option>
+        <div class="mchips" id="m-degres">
           ${(window.DEGRE_VALUES||[]).map(v=>{
-            const cur = degreLabelFromValue(getDegre(a));
-            return `<option value="${esc(v)}"${selected(cur, v)}>${esc(v)}</option>`;
+            const id = DEGRE_LABEL_TO_ID[v] || v;
+            return `<label class="mchip"><input type="checkbox" value="${esc(id)}"${checked(degreIdsFromValue(getDegre(a)), id)}><span>${esc(v)}</span></label>`;
           }).join('')}
-        </select>
+        </div>
       </div>
       <div class="mfield">
         <label>Volet</label>
@@ -1187,7 +1225,7 @@ function buildModalForm(a) {
     <div class="mfield full">
       <label>Contact(s) / pilote(s)</label>
       <div class="mchips" id="m-contacts">
-        ${contactOptions.map(v => `<label class="mchip"><input type="checkbox" value="${esc(v)}"${checked(selectedContacts, v)}><span>${esc(v)}</span></label>`).join('')}
+        ${contactOptions.map(o => `<label class="mchip"><input type="checkbox" value="${esc(o.value)}"${checked(selectedContactIds, o.value)}><span>${esc(o.label)}</span></label>`).join('')}
       </div>
     </div>
     <div class="mfield full">
@@ -1209,10 +1247,10 @@ async function saveRecord() {
 
   // Lire les valeurs du formulaire
   const structs  = [...document.querySelectorAll('#m-structs input:checked')].map(c=>c.value);
-  const contacts = [...document.querySelectorAll('#m-contacts input:checked')].map(c=>c.value);
+  const contacts = [...document.querySelectorAll('#m-contacts input:checked')].map(c=>c.value).filter(Boolean);
   const publics  = [...document.querySelectorAll('#m-publics input:checked')].map(c=>c.value);
 
-  const degreVal = document.getElementById('m-degre').value;
+  const degreIds = [...document.querySelectorAll('#m-degres input:checked')].map(c=>c.value).filter(Boolean);
   const debutVal = document.getElementById('m-debut').value;
   const finVal   = document.getElementById('m-fin').value;
 
@@ -1239,12 +1277,12 @@ async function saveRecord() {
     id_axe:              document.getElementById('m-axe').value,
     id_modalite:         document.getElementById('m-modal').value,
     id_structure:        structs,
-    id_contacts:         contacts,
     id_publics:          publics,
-    Degre:               degreVal ? (DEGRE_LABEL_TO_ID[degreVal] ? ['L', Number(DEGRE_LABEL_TO_ID[degreVal])] : [degreVal]) : (Object.keys(DEGRE_LABEL_TO_ID).length ? ['L'] : []),
     date_debut:          toTs(debutVal),
     date_fin:            toTs(finVal),
   };
+  fields[CONTACT_ACTION_COL] = ['L', ...contacts.map(Number).filter(Number.isFinite)];
+  fields[DEGREE_ACTION_COL] = ['L', ...degreIds.map(Number).filter(Number.isFinite)];
   const actionAxeRaw = document.getElementById('m-action-axe').value;
   fields[ACTION_COL] = actionAxeRaw ? (Number.isInteger(Number(actionAxeRaw)) ? Number(actionAxeRaw) : actionAxeRaw) : null;
 
@@ -1380,7 +1418,7 @@ function render() {
 
           ${contacts.length ? `
           <div class="meta-row">
-            <span class="meta-label">Contact</span>
+            <span class="meta-label">Contacts</span>
             <div class="meta-value tags">
               ${contacts.map(c=>`<span class="tag tag-contact">${esc(c)}</span>`).join('')}
             </div>
