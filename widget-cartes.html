@@ -100,6 +100,60 @@ html, body {
 }
 .tb-sel select:focus { border-color: var(--navy); }
 
+.tb-multi {
+  position: relative;
+  flex: 1;
+  min-width: 150px;
+}
+.multi-btn {
+  width: 100%;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 24px 6px 9px;
+  outline: none;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%238a8070' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+}
+.multi-btn:focus, .multi-btn.open { border-color: var(--navy); }
+.multi-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(27,58,107,.15);
+  padding: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.multi-menu.hidden { display: none; }
+.multi-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 7px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  color: var(--ink2);
+}
+.multi-option:hover { background: var(--navy-l); }
+.multi-option input { accent-color: var(--navy); }
+
 .btn-reset {
   font-family: 'DM Sans', sans-serif;
   font-size: 11px;
@@ -510,7 +564,10 @@ html, body {
   <div class="tb-sel"><select id="f-volet"  onchange="applyFilters()"><option value="">Tous les volets</option></select></div>
   <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Toutes les structures</option></select></div>
   <div class="tb-sel"><select id="f-public" onchange="applyFilters()"><option value="">Tous les publics</option></select></div>
-  <div class="tb-sel"><select id="f-degre"  onchange="applyFilters()"><option value="">Tous les degrés</option></select></div>
+  <div class="tb-multi">
+    <button type="button" id="f-degre-btn" class="multi-btn" onclick="toggleMultiMenu(event, 'f-degre-menu')">Tous les degrés</button>
+    <div id="f-degre-menu" class="multi-menu hidden"></div>
+  </div>
   <div class="tb-sel"><select id="f-modal"  onchange="applyFilters()"><option value="">Toutes les modalités</option></select></div>
   <button class="btn-reset" onclick="resetFilters()" title="Réinitialiser">✕</button>
   <button class="btn-new" onclick="openCreateModal()">+ Inscrire une action</button>
@@ -1023,10 +1080,7 @@ function buildFilters() {
     return Array.isArray(v) ? v : [v];
   }, true);
   fillFromData('f-public', r => publicValues(r), true);
-  fillFromData('f-degre',  r => {
-    const label = degreLabelFromValue(getDegre(r));
-    return label ? label.split(',').map(s => s.trim()).filter(Boolean) : [];
-  }, true);
+  fillDegreFilter();
   fillFromData('f-modal',  r => r.id_modalite);
 }
 
@@ -1054,12 +1108,72 @@ function fillFromData(selId, getter, isList) {
   if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
 }
 
+function degreFilterLabels() {
+  const fromTable = (DEGRE_OPTIONS || []).map(o => String(o.label || '').trim()).filter(Boolean);
+  const fallback = ['Premier degré', 'Second degré'];
+  return [...new Set((fromTable.length ? fromTable : fallback))]
+    .sort((a,b)=>a.localeCompare(b,'fr', {numeric:true}));
+}
+
+function fillDegreFilter() {
+  const menu = document.getElementById('f-degre-menu');
+  if (!menu) return;
+  const selected = new Set(getSelectedDegreFilters());
+  const labels = degreFilterLabels();
+  menu.innerHTML = labels.map(v => `
+    <label class="multi-option">
+      <input type="checkbox" value="${esc(v)}" ${selected.has(v) ? 'checked' : ''} onchange="applyFilters()">
+      <span>${esc(v)}</span>
+    </label>`).join('');
+  updateDegreFilterButton();
+}
+
+function getSelectedDegreFilters() {
+  return [...document.querySelectorAll('#f-degre-menu input:checked')]
+    .map(cb => String(cb.value || '').trim())
+    .filter(Boolean);
+}
+
+function updateDegreFilterButton() {
+  const btn = document.getElementById('f-degre-btn');
+  if (!btn) return;
+  const vals = getSelectedDegreFilters();
+  if (!vals.length) {
+    btn.textContent = 'Tous les degrés';
+  } else if (vals.length === 1) {
+    btn.textContent = vals[0];
+  } else {
+    btn.textContent = `${vals.length} degrés`;
+  }
+}
+
+function toggleMultiMenu(event, menuId) {
+  if (event) event.stopPropagation();
+  const menu = document.getElementById(menuId);
+  const btn = document.getElementById('f-degre-btn');
+  if (!menu) return;
+  const willOpen = menu.classList.contains('hidden');
+  document.querySelectorAll('.multi-menu').forEach(m => m.classList.add('hidden'));
+  document.querySelectorAll('.multi-btn').forEach(b => b.classList.remove('open'));
+  if (willOpen) {
+    menu.classList.remove('hidden');
+    if (btn) btn.classList.add('open');
+  }
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.tb-multi')) {
+    document.querySelectorAll('.multi-menu').forEach(m => m.classList.add('hidden'));
+    document.querySelectorAll('.multi-btn').forEach(b => b.classList.remove('open'));
+  }
+});
+
 function applyFilters() {
   const axe    = document.getElementById('f-axe').value;
   const volet  = document.getElementById('f-volet').value;
   const struct = document.getElementById('f-struct').value;
   const pub    = document.getElementById('f-public').value;
-  const degre  = document.getElementById('f-degre').value;
+  const degres = getSelectedDegreFilters();
   const modal  = document.getElementById('f-modal').value;
   const search = document.getElementById('f-search').value.toLowerCase();
 
@@ -1073,6 +1187,11 @@ function applyFilters() {
     const arr = Array.isArray(val) ? val : [val];
     return arr.some(v => String(v||'').trim() === filter);
   }
+  function matchAny(values, filters) {
+    if (!filters || !filters.length) return true;
+    const set = new Set(filters.map(v => String(v||'').trim()));
+    return (values || []).some(v => set.has(String(v||'').trim()));
+  }
 
   FILTERED = ALL.filter(a => {
     if (!matchText(a.id_axe,      axe))    return false;
@@ -1080,7 +1199,7 @@ function applyFilters() {
     if (!matchText(a.id_modalite, modal))   return false;
     if (!matchList(a.id_structure, struct)) return false;
     if (!matchList(publicValues(a), pub))   return false;
-    if (!matchList(degreLabelFromValue(getDegre(a)).split(',').map(s => s.trim()).filter(Boolean), degre)) return false;
+    if (!matchAny(degreLabelFromValue(getDegre(a)).split(',').map(s => s.trim()).filter(Boolean), degres)) return false;
     if (search && !(a.titre||'').toLowerCase().includes(search) &&
                   !(a.objectif||'').toLowerCase().includes(search) &&
                   !publicValues(a).join(' ').toLowerCase().includes(search) &&
@@ -1095,8 +1214,10 @@ function applyFilters() {
 }
 
 function resetFilters() {
-  ['f-axe','f-volet','f-struct','f-public','f-degre','f-modal'].forEach(id =>
+  ['f-axe','f-volet','f-struct','f-public','f-modal'].forEach(id =>
     document.getElementById(id).value = '');
+  document.querySelectorAll('#f-degre-menu input:checked').forEach(cb => { cb.checked = false; });
+  updateDegreFilterButton();
   document.getElementById('f-search').value = '';
   applyFilters();
 }
