@@ -984,6 +984,21 @@ grist.onRecords(async (records) => {
       .map(r => ({ value: degreLabelFromRow(r), label: degreLabelFromRow(r), id: String(r.id || '').trim() }))
       .filter(o => o.id && o.label)
       .sort((a,b)=>a.label.localeCompare(b.label,'fr', {numeric:true}));
+
+    // Sécurité opérationnelle : la table Degres contient normalement deux lignes
+    // (id 1 = Premier degré ; id 2 = Second degré). Si fetchTable('Degres')
+    // renvoie une table vide dans le sandbox du widget, on conserve quand même
+    // une interface modifiable avec des ids Grist valides dans ce document.
+    if (!DEGRE_OPTIONS.length) {
+      console.warn('[widget-cartes] Table Degres vide ou non lisible ; fallback ids 1/2 utilisé.');
+      DEGRE_ID_TO_LABEL = {'1': 'Premier degré', '2': 'Second degré'};
+      DEGRE_LABEL_TO_ID = {'Premier degré': '1', 'Second degré': '2'};
+      DEGRE_OPTIONS = [
+        {value: 'Premier degré', label: 'Premier degré', id: '1'},
+        {value: 'Second degré', label: 'Second degré', id: '2'},
+      ];
+    }
+
     window.DEGRE_VALUES = DEGRE_OPTIONS.map(o => o.label);
     console.info('[widget-cartes] Degres chargés', DEGRE_OPTIONS);
 
