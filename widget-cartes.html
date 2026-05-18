@@ -509,6 +509,8 @@ html, body {
   <div class="tb-sel"><select id="f-axe"    onchange="applyFilters()"><option value="">Tous les axes</option></select></div>
   <div class="tb-sel"><select id="f-volet"  onchange="applyFilters()"><option value="">Tous les volets</option></select></div>
   <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Toutes les structures</option></select></div>
+  <div class="tb-sel"><select id="f-public" onchange="applyFilters()"><option value="">Tous les publics</option></select></div>
+  <div class="tb-sel"><select id="f-degre"  onchange="applyFilters()"><option value="">Tous les degrés</option></select></div>
   <div class="tb-sel"><select id="f-modal"  onchange="applyFilters()"><option value="">Toutes les modalités</option></select></div>
   <button class="btn-reset" onclick="resetFilters()" title="Réinitialiser">✕</button>
   <button class="btn-new" onclick="openCreateModal()">+ Inscrire une action</button>
@@ -1020,6 +1022,11 @@ function buildFilters() {
     const v = r.id_structure;
     return Array.isArray(v) ? v : [v];
   }, true);
+  fillFromData('f-public', r => publicValues(r), true);
+  fillFromData('f-degre',  r => {
+    const label = degreLabelFromValue(getDegre(r));
+    return label ? label.split(',').map(s => s.trim()).filter(Boolean) : [];
+  }, true);
   fillFromData('f-modal',  r => r.id_modalite);
 }
 
@@ -1051,6 +1058,8 @@ function applyFilters() {
   const axe    = document.getElementById('f-axe').value;
   const volet  = document.getElementById('f-volet').value;
   const struct = document.getElementById('f-struct').value;
+  const pub    = document.getElementById('f-public').value;
+  const degre  = document.getElementById('f-degre').value;
   const modal  = document.getElementById('f-modal').value;
   const search = document.getElementById('f-search').value.toLowerCase();
 
@@ -1070,6 +1079,8 @@ function applyFilters() {
     if (!matchText(a.id_volet,    volet))   return false;
     if (!matchText(a.id_modalite, modal))   return false;
     if (!matchList(a.id_structure, struct)) return false;
+    if (!matchList(publicValues(a), pub))   return false;
+    if (!matchList(degreLabelFromValue(getDegre(a)).split(',').map(s => s.trim()).filter(Boolean), degre)) return false;
     if (search && !(a.titre||'').toLowerCase().includes(search) &&
                   !(a.objectif||'').toLowerCase().includes(search) &&
                   !publicValues(a).join(' ').toLowerCase().includes(search) &&
@@ -1084,7 +1095,7 @@ function applyFilters() {
 }
 
 function resetFilters() {
-  ['f-axe','f-volet','f-struct','f-modal'].forEach(id =>
+  ['f-axe','f-volet','f-struct','f-public','f-degre','f-modal'].forEach(id =>
     document.getElementById(id).value = '');
   document.getElementById('f-search').value = '';
   applyFilters();
