@@ -603,6 +603,18 @@ function degreLabelFromValue(v) {
   return labels.join(', ');
 }
 
+function getDegre(action) {
+  if (!action) return '';
+  const keys = ['Degre', 'Degres', 'id_degre', 'id_degres', 'Degré', 'Degrés', 'degre', 'degres'];
+  for (const k of keys) {
+    if (Object.prototype.hasOwnProperty.call(action, k) &&
+        action[k] !== undefined && action[k] !== null && action[k] !== '') {
+      return action[k];
+    }
+  }
+  return '';
+}
+
 function publicValue(v) {
   const key = String(v||'').trim();
   return PUBLIC_MAP[v] || PUBLIC_MAP[key] || key;
@@ -613,12 +625,18 @@ function publicValues(action) {
 }
 
 function contactLabelFromRow(r) {
+  // Table Contacts attendue : Nom Prénom / NOM / PRENOM / Email / Structure.
+  // On privilégie la colonne d'affichage « Nom Prénom », puis on reconstruit depuis PRENOM + NOM.
+  const nomPrenom = firstText(r, [
+    'Nom Prénom', 'Nom Prenom', 'NOM Prénom', 'NOM Prenom',
+    'nom_prenom', 'NOM_PRENOM', 'Nom_prenom', 'Nom_Prenom',
+    'display', 'Display'
+  ]);
   const prenom = firstText(r, ['PRENOM', 'Prenom', 'Prénom', 'prenom', 'first_name']);
   const nom    = firstText(r, ['NOM', 'Nom', 'nom', 'last_name']);
-  const email  = firstText(r, ['EMAIL', 'Email', 'email', 'mail']);
-  const nomPrenom = firstText(r, ['nom_prenom', 'NOM_PRENOM', 'Nom_prenom', 'display', 'Display']);
-  const fullName = nomPrenom || [prenom, nom].filter(Boolean).join(' ').trim() || nom || prenom;
-  return [fullName, email ? `<${email}>` : ''].filter(Boolean).join(' ').trim();
+  const email  = firstText(r, ['Email', 'EMAIL', 'email', 'mail']);
+  const fullName = nomPrenom || [prenom, nom].filter(Boolean).join(' ').trim() || nom || prenom || email;
+  return [fullName, email && fullName !== email ? `<${email}>` : ''].filter(Boolean).join(' ').trim();
 }
 
 function contactValue(v) {
@@ -626,8 +644,23 @@ function contactValue(v) {
   return CONT_MAP[v] || CONT_MAP[key] || key;
 }
 
+function getContactsValue(action) {
+  if (!action) return '';
+  const keys = [
+    'id_contacts', 'id_contact', 'contacts_pilotes', 'Contacts_pilotes',
+    'Contacts / pilotes', 'Contacts', 'Contact', 'contacts', 'contact'
+  ];
+  for (const k of keys) {
+    if (Object.prototype.hasOwnProperty.call(action, k) &&
+        action[k] !== undefined && action[k] !== null && action[k] !== '') {
+      return action[k];
+    }
+  }
+  return '';
+}
+
 function contactValues(action) {
-  return asList(action && (action.id_contacts || action.contacts_pilotes || action.Contacts_pilotes || action['Contacts / pilotes']))
+  return asList(getContactsValue(action))
     .map(contactValue)
     .filter(Boolean);
 }
@@ -1086,7 +1119,7 @@ function buildModalForm(a) {
         <select id="m-degre">
           <option value="">—</option>
           ${(window.DEGRE_VALUES||[]).map(v=>{
-            const cur = degreLabelFromValue(a.Degre);
+            const cur = degreLabelFromValue(getDegre(a));
             return `<option value="${esc(v)}"${selected(cur, v)}>${esc(v)}</option>`;
           }).join('')}
         </select>
@@ -1278,7 +1311,7 @@ function render() {
     const objectif = (a.objectif||'').replace(/\n/g,' ').trim();
     const periode  = a.periode || '';
     const gaia     = a.code_gaia || '';
-    const degre    = degreLabelFromValue(a.Degre);
+    const degre    = degreLabelFromValue(getDegre(a));
     const delay    = Math.min(i * 18, 400);
     const isSel    = a.id === selectedId;
 
