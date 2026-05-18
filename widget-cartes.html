@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF</title>
-<!-- Version v37 : contacts stables + Degres multisélection robuste -->
+<!-- Version v41 : ajout contact visible avant la sélection des contacts -->
 <!-- Version v31 : écriture prudente des références Structure et Modalité -->
 <!-- Version v33 : dirty-fields tracking to avoid reference corruption -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
@@ -383,8 +383,8 @@ html, body {
   background: var(--white);
   border-radius: 14px;
   width: 100%;
-  max-width: 680px;
-  max-height: 90vh;
+  max-width: 748px;
+  max-height: 96vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 24px 64px rgba(27,58,107,.25);
@@ -1587,13 +1587,7 @@ function buildModalForm(a) {
       </div>
     </div>
     <div class="mfield full">
-      <label>Contact(s) / pilote(s)</label>
-      <div class="mchips" id="m-contacts">
-        ${contactOptions.map(o => `<label class="mchip"><input type="checkbox" value="${esc(o.value)}"${checked(selectedContactIds, o.value)}><span>${esc(o.label)}</span></label>`).join('')}
-      </div>
-    </div>
-    <div class="mfield full">
-      <label>Ajouter un contact s'il n'existe pas déjà</label>
+      <label>Ajouter un nouveau contact</label>
       <div class="new-contact-box">
         <div class="new-contact-line">
           <input type="text" id="m-new-contact-prenom" placeholder="prenom" autocomplete="off">
@@ -1607,8 +1601,14 @@ function buildModalForm(a) {
           ${structOptions.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('')}
         </select>
         <div class="new-contact-help">
-          Si l'adresse n'existe pas dans Contacts, le widget crée automatiquement une ligne : NOM, PRENOM, Email, Structure, puis l'ajoute à la sélection Contacts de l'action.
+          Si l'adresse existe déjà dans Contacts, le widget la réutilise. Sinon il crée NOM, PRENOM, Nom Prénom, Email et Structure, puis ajoute ce contact à l'action.
         </div>
+      </div>
+    </div>
+    <div class="mfield full">
+      <label>Contact(s) / pilote(s)</label>
+      <div class="mchips" id="m-contacts">
+        ${contactOptions.map(o => `<label class="mchip"><input type="checkbox" value="${esc(o.value)}"${checked(selectedContactIds, o.value)}><span>${esc(o.label)}</span></label>`).join('')}
       </div>
     </div>
     <div class="mfield full">
