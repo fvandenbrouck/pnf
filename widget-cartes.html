@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF</title>
-<!-- Version v26 : Degrés en sélection multiple -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -810,16 +809,14 @@ function buildModalForm(a) {
         </select>
       </div>
       <div class="mfield">
-        <label>Degré(s)</label>
-        <div class="mchips" id="m-degres">
-          ${(window.DEGRE_VALUES||[]).map(v => {
-            const selectedDegres = asList(a.Degre)
-              .map(x => DEGRE_ID_TO_LABEL[x] || DEGRE_ID_TO_LABEL[String(x||'').trim()] || String(x||'').trim())
-              .filter(Boolean);
-            const checked = selectedDegres.includes(v);
-            return `<label class="mchip"><input type="checkbox" value="${esc(v)}"${checked?' checked':''}><span>${esc(v)}</span></label>`;
+        <label>Degré</label>
+        <select id="m-degre">
+          <option value="">—</option>
+          ${(window.DEGRE_VALUES||[]).map(v=>{
+            const cur = degreLabelFromValue(a.Degre);
+            return `<option value="${esc(v)}"${v===cur?' selected':''}>${esc(v)}</option>`;
           }).join('')}
-        </div>
+        </select>
       </div>
     </div>
     <div class="modal-row">
@@ -875,7 +872,7 @@ async function saveRecord() {
   const structs = [...document.querySelectorAll('#m-structs input:checked')].map(c=>c.value);
   const publics  = [...document.querySelectorAll('#m-publics input:checked')].map(c=>c.value);
 
-  const degres = [...document.querySelectorAll('#m-degres input:checked')].map(c=>c.value);
+  const degreVal = document.getElementById('m-degre').value;
   const debutVal = document.getElementById('m-debut').value;
   const finVal   = document.getElementById('m-fin').value;
 
@@ -891,7 +888,7 @@ async function saveRecord() {
     id_modalite:         document.getElementById('m-modal').value,
     id_structure:        structs,
     id_publics:          publics,
-    Degre:               degres.length ? ['L', ...degres.map(v => DEGRE_LABEL_TO_ID[v]).filter(Boolean).map(Number)] : ['L'],
+    Degre:               degreVal ? (DEGRE_LABEL_TO_ID[degreVal] ? ['L', Number(DEGRE_LABEL_TO_ID[degreVal])] : [degreVal]) : (Object.keys(DEGRE_LABEL_TO_ID).length ? ['L'] : []),
     date_debut:          toTs(debutVal),
     date_fin:            toTs(finVal),
   };
