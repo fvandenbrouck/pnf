@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF</title>
-<!-- Version v29 : Contacts column + Degre multiselect -->
+<!-- Version v30 : hardcode Contacts column + robust contact/degre display -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -650,9 +650,12 @@ function contactValue(v) {
 
 function getContactsValue(action) {
   if (!action) return '';
+  // La colonne réelle dans Actions_formation s'appelle Contacts.
+  // On la lit en priorité pour précocher correctement la modale.
   const keys = [
-    'id_contacts', 'id_contact', 'contacts_pilotes', 'Contacts_pilotes',
-    'Contacts / pilotes', 'Contacts', 'Contact', 'contacts', 'contact'
+    'Contacts', 'Contact', 'contacts', 'contact',
+    'Contacts / pilotes', 'contacts_pilotes', 'Contacts_pilotes',
+    'id_contacts', 'id_contact'
   ];
   for (const k of keys) {
     if (Object.prototype.hasOwnProperty.call(action, k) &&
@@ -673,8 +676,22 @@ function contactIdsFromValue(value) {
   return asList(value).map(v => {
     const raw = String(v || '').trim();
     if (/^\d+$/.test(raw) && CONT_MAP[raw]) return raw;
+
     const label = contactValue(v);
-    return CONTACT_LABEL_TO_ID[label] || CONTACT_LABEL_TO_ID[raw] || '';
+    if (CONTACT_LABEL_TO_ID[label]) return CONTACT_LABEL_TO_ID[label];
+    if (CONTACT_LABEL_TO_ID[raw]) return CONTACT_LABEL_TO_ID[raw];
+
+    // Cas fréquent : Grist renvoie « NOM Prénom <email> » ou seulement l'email.
+    const emailMatch = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    if (emailMatch && CONTACT_LABEL_TO_ID[emailMatch[0].toLowerCase()]) {
+      return CONTACT_LABEL_TO_ID[emailMatch[0].toLowerCase()];
+    }
+    if (emailMatch && CONTACT_LABEL_TO_ID[emailMatch[0]]) {
+      return CONTACT_LABEL_TO_ID[emailMatch[0]];
+    }
+
+    const withoutEmail = raw.replace(/<[^>]+>/g, '').trim();
+    return CONTACT_LABEL_TO_ID[withoutEmail] || '';
   }).filter(Boolean);
 }
 
@@ -908,9 +925,21 @@ grist.onRecords(async (records) => {
       const email = firstText(r, ['Email', 'EMAIL', 'email', 'mail']);
       CONT_MAP[id] = label;
       CONT_MAP[label] = label;
-      if (email) CONT_MAP[email] = label;
       CONTACT_LABEL_TO_ID[label] = id;
-      if (email) CONTACT_LABEL_TO_ID[email] = id;
+
+      const displayName = label.replace(/<[^>]+>/g, '').trim();
+      if (displayName) {
+        CONT_MAP[displayName] = label;
+        CONTACT_LABEL_TO_ID[displayName] = id;
+      }
+
+      if (email) {
+        CONT_MAP[email] = label;
+        CONT_MAP[email.toLowerCase()] = label;
+        CONTACT_LABEL_TO_ID[email] = id;
+        CONTACT_LABEL_TO_ID[email.toLowerCase()] = id;
+      }
+
       CONTACT_OPTIONS.push({value: id, label});
     });
     CONTACT_OPTIONS.sort((a,b)=>a.label.localeCompare(b.label,'fr'));
@@ -936,7 +965,9 @@ grist.onRecords(async (records) => {
     ALL = records.map(r => ({ id: r.id, ...r }));
     ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'], ACTION_COL);
     DEGREE_ACTION_COL = detectExistingColumn(ALL, ['Degre', 'Degres', 'id_degre', 'id_degres', 'Degré', 'Degrés', 'degre', 'degres'], DEGREE_ACTION_COL);
-    CONTACT_ACTION_COL = detectExistingColumn(ALL, ['Contacts', 'Contact', 'id_contacts', 'id_contact', 'contacts_pilotes', 'Contacts_pilotes', 'Contacts / pilotes', 'contacts', 'contact'], CONTACT_ACTION_COL);
+    // Colonne réelle dans Actions_formation : Contacts.
+    // Ne pas détecter id_contacts : cette colonne n'existe pas et provoque un KeyError à l'enregistrement.
+    CONTACT_ACTION_COL = 'Contacts';
 
     buildFilters();
     applyFilters();
