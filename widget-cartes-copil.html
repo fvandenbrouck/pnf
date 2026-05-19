@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF — Comité de pilotage</title>
+<!-- Version v8 : année scolaire sur les cartes, filtre Années et export CSV enrichi -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -14,7 +15,7 @@
   --ink:#1a1208; --ink2:#4a3f2f; --ink3:#8a8070; --border:#E0D8CC;
 }
 html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--ink); height:100%; overflow:hidden; }
-.toolbar { background:var(--white); border-bottom:1px solid var(--border); padding:10px 12px; display:flex; gap:8px; align-items:center; position:sticky; top:0; z-index:10; }
+.toolbar { background:var(--white); border-bottom:1px solid var(--border); padding:10px 12px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; position:sticky; top:0; z-index:10; }
 .tb-search { position:relative; flex:1; min-width:220px; }
 .tb-search svg { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--ink3); }
 .tb-search input { width:100%; padding:8px 12px 8px 34px; font-size:12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; outline:none; }
@@ -40,7 +41,7 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 }
 .tb-sel select:focus { border-color:var(--navy); background:#fff; }
 .count { font-family:'DM Mono',monospace; font-size:11px; color:var(--ink3); background:var(--lilas); padding:6px 12px; border-radius:999px; }
-.btn-download { font-family:'DM Sans',sans-serif; font-size:12px; font-weight:600; padding:8px 12px; border-radius:8px; cursor:pointer; border:1.5px solid var(--navy); background:var(--navy); color:#fff; white-space:nowrap; }
+.btn-download { font-family:'DM Sans',sans-serif; font-size:12px; font-weight:700; padding:8px 14px; border-radius:8px; cursor:pointer; border:1.5px solid var(--navy); background:var(--navy); color:#fff; white-space:nowrap; display:inline-flex; align-items:center; justify-content:center; min-height:36px; }
 .btn-download:hover { background:#0d2a52; border-color:#0d2a52; }
 .grid-wrap { height:calc(100vh - 58px); overflow-y:auto; padding:14px; }
 .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(390px,1fr)); gap:12px; }
@@ -49,6 +50,9 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 .card.selected { border-color:var(--navy); box-shadow:0 0 0 3px rgba(27,58,107,.15); }
 .card-band { height:5px; background:var(--strawberry); }
 .card-body { padding:15px 17px; display:flex; flex-direction:column; gap:10px; }
+.card-top { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+.chip-annee { font-family:'DM Mono',monospace; font-size:9px; font-weight:700; color:#1a6b65; background:rgba(168,221,216,.35); padding:3px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; }
+.chip-volet { font-family:'DM Mono',monospace; font-size:9px; font-weight:600; color:var(--navy); background:var(--navy-l); padding:3px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; }
 .card-title { font-family:'Fraunces',serif; font-size:15px; font-weight:600; line-height:1.35; }
 .card-objectif { font-size:12px; color:var(--ink2); line-height:1.55; }
 .card-sep { height:1px; background:var(--border); margin-top:2px; }
@@ -110,9 +114,10 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
     <input type="text" id="f-search" placeholder="Rechercher une action copil…" oninput="applyFilters()">
   </div>
+  <button class="btn-download" onclick="downloadSelectionCsv()" title="Télécharger les actions affichées au format CSV">Télécharger CSV</button>
+  <div class="tb-sel"><select id="f-annee" onchange="applyFilters()"><option value="">Toutes les années</option></select></div>
   <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Toutes les structures</option></select></div>
   <div class="tb-sel"><select id="f-referent" onchange="applyFilters()"><option value="">Tous les référents</option></select></div>
-  <button class="btn-download" onclick="downloadSelectionCsv()">Télécharger la sélection au format CSV</button>
   <span class="count" id="count">–</span>
 </div>
 <div class="grid-wrap"><div class="grid" id="grid"></div></div>
@@ -137,10 +142,11 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
   </div>
 </div>
 <script>
+console.info('[widget-cartes-copil] version v8 années + export CSV chargé');
 let ALL = [], FILTERED = [], CURRENT_ACTION = null, selectedId = null;
-let CONTACT_ROWS = [], STRUCT_ROWS = [], REFERENT_ROWS = [];
+let CONTACT_ROWS = [], STRUCT_ROWS = [], REFERENT_ROWS = [], ANNEE_ROWS = [];
 let CONTACT_MAP = {}, CONTACT_ID_BY_LABEL = {}, CONTACT_ID_BY_EMAIL = {};
-let STRUCT_VALUES = [], PUBLIC_MAP = {}, MODAL_MAP = {}, STRUCT_MAP = {};
+let STRUCT_VALUES = [], ANNEE_VALUES = [], ANNEE_MAP = {}, PUBLIC_MAP = {}, MODAL_MAP = {}, STRUCT_MAP = {};
 let SELECTED_REFERENT_IDS = new Set();
 const ACTION_TABLE = 'Actions_formation';
 const CONTACT_TABLE = 'Contacts';
@@ -192,6 +198,20 @@ function isCopilEnabled(a){ return a && (a.is_copil===true || a.is_copil===1 || 
 function simpleLabelFromRow(r){ return firstText(r,['libelle','Libelle','Libellé','label','Label','nom','Nom','code','Code']); }
 function publicLabelFromRow(r){ return firstText(r,['Libellé','libelle','Libelle','label','Label','nom','Nom']); }
 function structureLabelFromRow(r){ return firstText(r,['code','Code','libelle','Libelle','Libellé','nom','Nom','Structure']); }
+
+function anneeLabelFromRow(r){
+  return firstText(r,[
+    'Annee_scolaire','Année scolaire','Annee scolaire','annee_scolaire',
+    'Ann_e_scolaire','Annee','Année','annee','libelle','Libelle','Libellé','label','Label','nom','Nom'
+  ]);
+}
+function getAnnee(a){
+  const raw = a && (a.Annee_scolaire || a['Année scolaire'] || a['Annee scolaire'] || a.annee_scolaire || a.Ann_e_scolaire || a.Annee || a['Année'] || a.annee || a.id_annee || a.id_annees || a.Annees || a['Années']);
+  return labelForRef(raw, ANNEE_MAP);
+}
+function getVolet(a){
+  return labelForRef(a && (a.id_volet || a.Volet || a.volet), {});
+}
 function contactLabelFromRow(r){
   // Libellé d'affichage des référents : utiliser d'abord la colonne exacte "Nom Prénom" de Contacts.
   // Ne pas ajouter l'email dans les menus/cartouches : le filtre doit présenter les noms seulement.
@@ -298,19 +318,22 @@ async function loadData(records){
   showLoader(true);
   try{
     let attempts=0; while(!grist.docApi && attempts<20){ await new Promise(r=>setTimeout(r,100)); attempts++; }
-    const [contacts, structures, publics, modalites, referents] = await Promise.all([
+    const [contacts, structures, publics, modalites, referents, annees] = await Promise.all([
       grist.docApi.fetchTable('Contacts').catch(()=>({id:[]})),
       grist.docApi.fetchTable('Structures').catch(()=>({id:[]})),
       grist.docApi.fetchTable('Publics').catch(()=>({id:[]})),
       grist.docApi.fetchTable('Modalites').catch(()=>({id:[]})),
       fetchTableSmart(['Referents','Référents','Referent','Référent']).catch(()=>({id:[]})),
+      grist.docApi.fetchTable('Annees').catch(()=>({id:[]})),
     ]);
-    CONTACT_ROWS = toRows(contacts); STRUCT_ROWS = toRows(structures); REFERENT_ROWS = toRows(referents);
+    CONTACT_ROWS = toRows(contacts); STRUCT_ROWS = toRows(structures); REFERENT_ROWS = toRows(referents); ANNEE_ROWS = toRows(annees);
     rebuildContactIndexes();
     STRUCT_MAP = Object.fromEntries(STRUCT_ROWS.map(r=>[r.id, structureLabelFromRow(r)]).filter(([,v])=>v));
     PUBLIC_MAP = Object.fromEntries(toRows(publics).map(r=>[r.id, publicLabelFromRow(r)]).filter(([,v])=>v));
     MODAL_MAP = Object.fromEntries(toRows(modalites).map(r=>[r.id, simpleLabelFromRow(r)]).filter(([,v])=>v));
     STRUCT_VALUES = [...new Set(STRUCT_ROWS.map(structureLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
+    ANNEE_MAP = Object.fromEntries(ANNEE_ROWS.map(r=>[r.id, anneeLabelFromRow(r)]).filter(([,v])=>v));
+    ANNEE_VALUES = [...new Set(ANNEE_ROWS.map(anneeLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
     ALL = (records||[]).map(r=>({id:r.id,...r})).filter(isCopilEnabled);
     buildFilterControls();
     applyFilters();
@@ -345,6 +368,9 @@ function fillSelect(selId, values, firstLabel){
 function buildFilterControls(){
   const structureValues = [...new Set(ALL.flatMap(a => getStructures(a)).map(s => String(s||'').trim()).filter(Boolean))]
     .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
+  const anneeValues = [...new Set((ANNEE_VALUES.length ? ANNEE_VALUES : ALL.map(getAnnee))
+    .map(s => String(s||'').trim()).filter(Boolean))]
+    .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
 
   // Le filtre Référents liste les valeurs de la table Referents.
   // Si la table contient une référence vers Contacts, la valeur est convertie en "Nom Prénom".
@@ -366,6 +392,7 @@ function buildFilterControls(){
   }
 
   console.info('[widget-cartes-copil] Options filtre Référents :', referentValues);
+  fillSelect('f-annee', anneeValues, 'Toutes les années');
   fillSelect('f-struct', structureValues, 'Toutes les structures');
   fillSelect('f-referent', referentValues, 'Tous les référents');
 }
@@ -392,6 +419,7 @@ function downloadSelectionCsv(){
     return {
       titre: String(a.titre || 'Sans titre'),
       objectif: String(a.objectif || '').replace(/\n/g, ' ').trim(),
+      annee_scolaire: getAnnee(a),
       modalite: getModalite(a),
       structure: getStructures(a).join(', '),
       publics: getPublics(a).join(', '),
@@ -399,12 +427,13 @@ function downloadSelectionCsv(){
     };
   });
 
-  const headers = ['titre','objectif','modalité','structure','publics','referents'];
+  const headers = ['titre','objectif','année scolaire','modalité','structure','publics','referents'];
   const lines = [headers.map(csvCell).join(';')];
   rows.forEach(r => {
     lines.push([
       r.titre,
       r.objectif,
+      r.annee_scolaire,
       r.modalite,
       r.structure,
       r.publics,
@@ -427,14 +456,17 @@ function downloadSelectionCsv(){
 
 function applyFilters(){
   const q = document.getElementById('f-search').value.toLowerCase().trim();
+  const anneeFilter = document.getElementById('f-annee')?.value || '';
   const structFilter = document.getElementById('f-struct')?.value || '';
   const referentFilter = document.getElementById('f-referent')?.value || '';
 
   FILTERED = ALL.filter(a=>{
+    const annee = getAnnee(a);
     const structs = getStructures(a);
     const referentIds = referentIdsFromAction(a).map(id=>String(id));
     const referentLabels = referentIds.map(id=>CONTACT_MAP[id]).filter(Boolean);
 
+    if(anneeFilter && annee !== anneeFilter) return false;
     if(structFilter && !structs.includes(structFilter)) return false;
     if(referentFilter && !referentLabels.includes(String(referentFilter))) return false;
 
@@ -442,6 +474,7 @@ function applyFilters(){
     const hay = [
       a.titre,
       a.objectif,
+      getAnnee(a),
       getModalite(a),
       structs.join(' '),
       getPublics(a).join(' '),
@@ -474,7 +507,7 @@ function openModal(id){
   const a=ALL.find(x=>x.id===id); if(!a) return;
   CURRENT_ACTION=a; selectedId=id; SELECTED_REFERENT_IDS=new Set(referentIdsFromAction(a));
   document.getElementById('modal-title').textContent=a.titre||'Sans titre';
-  document.getElementById('modal-meta').textContent='Comité de pilotage · référents';
+  document.getElementById('modal-meta').textContent=['Comité de pilotage', getAnnee(a), getVolet(a), 'référents'].filter(Boolean).join(' · ');
   buildModalBody();
   document.getElementById('msg-save').textContent=''; document.getElementById('msg-save').className='msg';
   document.getElementById('overlay').classList.remove('hidden');
