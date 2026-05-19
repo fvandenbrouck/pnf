@@ -135,7 +135,7 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 </div>
 <script>
 let ALL = [], FILTERED = [], CURRENT_ACTION = null, selectedId = null;
-let CONTACT_ROWS = [], STRUCT_ROWS = [];
+let CONTACT_ROWS = [], STRUCT_ROWS = [], REFERENT_ROWS = [];
 let CONTACT_MAP = {}, CONTACT_ID_BY_LABEL = {}, CONTACT_ID_BY_EMAIL = {};
 let STRUCT_VALUES = [], PUBLIC_MAP = {}, MODAL_MAP = {}, STRUCT_MAP = {};
 let SELECTED_REFERENT_IDS = new Set();
@@ -154,14 +154,43 @@ function simpleLabelFromRow(r){ return firstText(r,['libelle','Libelle','Libell�
 function publicLabelFromRow(r){ return firstText(r,['Libellé','libelle','Libelle','label','Label','nom','Nom']); }
 function structureLabelFromRow(r){ return firstText(r,['code','Code','libelle','Libelle','Libellé','nom','Nom','Structure']); }
 function contactLabelFromRow(r){
+  // Libellé d'affichage des référents : utiliser d'abord la colonne exacte "Nom Prénom" de Contacts.
+  // Ne pas ajouter l'email dans les menus/cartouches : le filtre doit présenter les noms seulement.
   const nomPrenom = firstText(r,['Nom Prénom','Nom Prenom','nom_prenom','NOM_PRENOM','Nom_prenom']);
   const nom = firstText(r,['NOM','Nom','nom']);
   const prenom = firstText(r,['PRENOM','Prénom','Prenom','prenom']);
   const email = firstText(r,['Email','EMAIL','email','mail']);
-  const full = nomPrenom || [nom, prenom].filter(Boolean).join(' ').trim() || [prenom, nom].filter(Boolean).join(' ').trim() || email;
-  return [full, email ? `<${email}>` : ''].filter(Boolean).join(' ').trim();
+  return nomPrenom || [nom, prenom].filter(Boolean).join(' ').trim() || [prenom, nom].filter(Boolean).join(' ').trim() || email;
 }
 function contactEmailFromRow(r){ return firstText(r,['Email','EMAIL','email','mail']); }
+function anyText(row, keys){
+  for(const k of keys){
+    const v = row && row[k];
+    if(v !== undefined && v !== null && String(v).trim()) return String(v).trim();
+  }
+  return '';
+}
+function referentFilterLabelFromRow(r){
+  // Le filtre Référents est alimenté par la table Referents, pas par Contacts.
+  // On accepte plusieurs noms de colonnes pour rester robuste, mais l'affichage attendu est un nom lisible.
+  const direct = firstText(r,[
+    'Nom Prénom','Nom Prenom','nom_prenom','NOM_PRENOM','Nom_prenom',
+    'Referent','Référent','Referents','Référents','referent','referents',
+    'Contact','Contacts','contact','contacts','libelle','Libelle','Libellé','label','Label','nom','Nom'
+  ]);
+  if(direct) return direct;
+
+  // Si la table Referents contient une référence vers Contacts, convertir l'id en libellé Contacts.
+  const ref = anyText(r,[
+    'Contact','Contacts','contact','contacts','Referent','Référent','Referents','Référents','referent','referents'
+  ]);
+  if(ref && CONTACT_MAP[String(ref)]) return CONTACT_MAP[String(ref)];
+
+  // Dernier secours : NOM + PRENOM si ces colonnes existent.
+  const nom = firstText(r,['NOM','Nom','nom']);
+  const prenom = firstText(r,['PRENOM','Prénom','Prenom','prenom']);
+  return [nom, prenom].filter(Boolean).join(' ').trim() || [prenom, nom].filter(Boolean).join(' ').trim();
+}
 function rebuildContactIndexes(){
   CONTACT_MAP = {}; CONTACT_ID_BY_LABEL = {}; CONTACT_ID_BY_EMAIL = {};
   CONTACT_ROWS.forEach(r=>{
@@ -197,13 +226,14 @@ async function loadData(records){
   showLoader(true);
   try{
     let attempts=0; while(!grist.docApi && attempts<20){ await new Promise(r=>setTimeout(r,100)); attempts++; }
-    const [contacts, structures, publics, modalites] = await Promise.all([
+    const [contacts, structures, publics, modalites, referents] = await Promise.all([
       grist.docApi.fetchTable('Contacts').catch(()=>({id:[]})),
       grist.docApi.fetchTable('Structures').catch(()=>({id:[]})),
       grist.docApi.fetchTable('Publics').catch(()=>({id:[]})),
       grist.docApi.fetchTable('Modalites').catch(()=>({id:[]})),
+      grist.docApi.fetchTable('Referents').catch(()=>({id:[]})),
     ]);
-    CONTACT_ROWS = toRows(contacts); STRUCT_ROWS = toRows(structures);
+    CONTACT_ROWS = toRows(contacts); STRUCT_ROWS = toRows(structures); REFERENT_ROWS = toRows(referents);
     rebuildContactIndexes();
     STRUCT_MAP = Object.fromEntries(STRUCT_ROWS.map(r=>[r.id, structureLabelFromRow(r)]).filter(([,v])=>v));
     PUBLIC_MAP = Object.fromEntries(toRows(publics).map(r=>[r.id, publicLabelFromRow(r)]).filter(([,v])=>v));
@@ -244,13 +274,16 @@ function buildFilterControls(){
   const structureValues = [...new Set(ALL.flatMap(a => getStructures(a)).map(s => String(s||'').trim()).filter(Boolean))]
     .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
 
-  const referentIds = [...new Set(ALL.flatMap(a => referentIdsFromAction(a)).map(id => String(id||'').trim()).filter(Boolean))]
-    .filter(id => CONTACT_MAP[id])
-    .map(id => ({value:id, label:CONTACT_MAP[id]}))
-    .sort((a,b)=>a.label.localeCompare(b.label,'fr',{numeric:true}));
+  // Le filtre Référents doit lister les valeurs de la table Referents,
+  // et non l'ensemble de la table Contacts. La valeur du filtre est le libellé affiché.
+  const referentValues = [...new Set(REFERENT_ROWS
+    .map(referentFilterLabelFromRow)
+    .map(s => String(s||'').trim())
+    .filter(Boolean))]
+    .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
 
   fillSelect('f-struct', structureValues, 'Toutes les structures');
-  fillSelect('f-referent', referentIds, 'Tous les référents');
+  fillSelect('f-referent', referentValues, 'Tous les référents');
 }
 
 function applyFilters(){
@@ -261,9 +294,10 @@ function applyFilters(){
   FILTERED = ALL.filter(a=>{
     const structs = getStructures(a);
     const referentIds = referentIdsFromAction(a).map(id=>String(id));
+    const referentLabels = referentIds.map(id=>CONTACT_MAP[id]).filter(Boolean);
 
     if(structFilter && !structs.includes(structFilter)) return false;
-    if(referentFilter && !referentIds.includes(String(referentFilter))) return false;
+    if(referentFilter && !referentLabels.includes(String(referentFilter))) return false;
 
     if(!q) return true;
     const hay = [
@@ -272,7 +306,7 @@ function applyFilters(){
       getModalite(a),
       structs.join(' '),
       getPublics(a).join(' '),
-      referentIds.map(id=>CONTACT_MAP[id]).join(' ')
+      referentLabels.join(' ')
     ].join(' ').toLowerCase();
     return hay.includes(q);
   });
@@ -372,7 +406,9 @@ async function addNewReferent(){
     try{
       const result=await grist.docApi.applyUserActions([['AddRecord', CONTACT_TABLE, null, fields]]);
       id=String(Array.isArray(result)?result[0]:result);
-      CONTACT_ROWS.push({id:Number(id), ...fields}); rebuildContactIndexes();
+      CONTACT_ROWS.push({id:Number(id), ...fields});
+      rebuildContactIndexes();
+      buildFilterControls();
       msg.textContent='✓ Nouveau contact créé et ajouté comme référent'; msg.className='msg ok';
     } catch(e){ msg.textContent='✗ Erreur contact : '+e.message; msg.className='msg err'; return; }
   } else { msg.textContent='✓ Contact existant ajouté comme référent'; msg.className='msg ok'; }
@@ -387,8 +423,12 @@ async function saveReferents(){
   try{
     await grist.docApi.applyUserActions([['UpdateRecord', ACTION_TABLE, CURRENT_ACTION.id, {[REFERENTS_COL]: ['L', ...ids]}]]);
     CURRENT_ACTION[REFERENTS_COL]=['L', ...ids];
-    const idx=ALL.findIndex(a=>a.id===CURRENT_ACTION.id); if(idx>=0) ALL[idx][REFERENTS_COL]=['L', ...ids];
-    msg.textContent='✓ Référents enregistrés'; msg.className='msg ok'; applyFilters();
+    const idx=ALL.findIndex(a=>a.id===CURRENT_ACTION.id);
+    if(idx>=0) ALL[idx][REFERENTS_COL]=['L', ...ids];
+    // Recalculer les filtres puis le rendu pour que la carte affiche immédiatement les cartouches bleus.
+    buildFilterControls();
+    applyFilters();
+    msg.textContent='✓ Référents enregistrés'; msg.className='msg ok';
     setTimeout(()=>closeModal(),900);
   } catch(e){ msg.textContent='✗ Erreur : '+e.message; msg.className='msg err'; }
   finally{ btn.disabled=false; }
