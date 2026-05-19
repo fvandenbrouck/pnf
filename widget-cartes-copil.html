@@ -148,6 +148,42 @@ function asList(v){ if(!v) return []; if(Array.isArray(v)) return v[0]==='L' ? v
 function firstText(row, keys){ for(const k of keys){ const v=row && row[k]; if(typeof v==='string' && v.trim()) return v.trim(); } return ''; }
 function toRows(t){ return (t && t.id || []).map((id,i)=>{ const r={id}; Object.keys(t||{}).forEach(k=>{ if(k!=='id') r[k]=t[k][i]; }); return r; }); }
 function norm(s){ return String(s||'').trim().toLowerCase(); }
+function normalizeTableName(s){
+  return String(s||'')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/[^a-z0-9]+/g,'');
+}
+async function fetchTableSmart(preferredNames){
+  for(const name of preferredNames){
+    try{
+      const t = await grist.docApi.fetchTable(name);
+      if(t && Array.isArray(t.id)) {
+        console.info('[widget-cartes-copil] Table chargée :', name);
+        return t;
+      }
+    } catch(e) {}
+  }
+  try{
+    const tablesRaw = await grist.docApi.fetchTable('_grist_Tables');
+    const rows = toRows(tablesRaw);
+    const wanted = preferredNames.map(normalizeTableName);
+    for(const r of rows){
+      const tableId = String(r.tableId || '').trim();
+      const normId = normalizeTableName(tableId);
+      if(tableId && wanted.includes(normId)){
+        const t = await grist.docApi.fetchTable(tableId);
+        if(t && Array.isArray(t.id)) {
+          console.info('[widget-cartes-copil] Table résolue via métadonnées :', tableId);
+          return t;
+        }
+      }
+    }
+  } catch(e) {
+    console.warn('[widget-cartes-copil] Impossible de résoudre la table via métadonnées :', preferredNames, e);
+  }
+  console.warn('[widget-cartes-copil] Table introuvable :', preferredNames);
+  return {id:[]};
+}
 function titleCaseName(s){ return String(s||'').trim().toLowerCase().replace(/(^|[\s'-])([a-zà-ÿ])/g,(m,p,c)=>p+c.toUpperCase()); }
 function isCopilEnabled(a){ return a && (a.is_copil===true || a.is_copil===1 || String(a.is_copil).toLowerCase()==='true'); }
 function simpleLabelFromRow(r){ return firstText(r,['libelle','Libelle','Libellé','label','Label','nom','Nom','code','Code']); }
@@ -170,27 +206,60 @@ function anyText(row, keys){
   }
   return '';
 }
+function displayFromAnyCell(value){
+  if(value === null || value === undefined || value === '') return '';
+
+  if(Array.isArray(value)){
+    const vals = asList(value);
+    const labels = vals.map(displayFromAnyCell).filter(Boolean);
+    return labels.join(', ');
+  }
+
+  if(typeof value === 'object'){
+    return firstText(value, [
+      'Nom Prénom','Nom Prenom','nom_prenom','NOM_PRENOM','Nom_prenom',
+      'display','Display','label','Label','name','Name','nom','Nom','libelle','Libelle','Libellé'
+    ]);
+  }
+
+  const s = String(value).trim();
+  if(!s) return '';
+  if(/^\d+$/.test(s) && CONTACT_MAP[s]) return CONTACT_MAP[s];
+  if(CONTACT_ID_BY_LABEL[s]) return s;
+  return s;
+}
+
 function referentFilterLabelFromRow(r){
-  // Le filtre Référents est alimenté par la table Referents, pas par Contacts.
-  // On accepte plusieurs noms de colonnes pour rester robuste, mais l'affichage attendu est un nom lisible.
-  const direct = firstText(r,[
+  // Le filtre Référents est alimenté par la table Referents.
+  // Cette table peut contenir soit du texte, soit une référence vers Contacts.
+  // On résout donc d'abord les colonnes attendues, puis n'importe quelle cellule exploitable.
+  const priorityKeys = [
     'Nom Prénom','Nom Prenom','nom_prenom','NOM_PRENOM','Nom_prenom',
     'Referent','Référent','Referents','Référents','referent','referents',
     'Contact','Contacts','contact','contacts','libelle','Libelle','Libellé','label','Label','nom','Nom'
-  ]);
-  if(direct) return direct;
+  ];
 
-  // Si la table Referents contient une référence vers Contacts, convertir l'id en libellé Contacts.
-  const ref = anyText(r,[
-    'Contact','Contacts','contact','contacts','Referent','Référent','Referents','Référents','referent','referents'
-  ]);
-  if(ref && CONTACT_MAP[String(ref)]) return CONTACT_MAP[String(ref)];
+  for(const k of priorityKeys){
+    if(Object.prototype.hasOwnProperty.call(r, k)){
+      const label = displayFromAnyCell(r[k]);
+      if(label) return label;
+    }
+  }
 
-  // Dernier secours : NOM + PRENOM si ces colonnes existent.
   const nom = firstText(r,['NOM','Nom','nom']);
   const prenom = firstText(r,['PRENOM','Prénom','Prenom','prenom']);
-  return [nom, prenom].filter(Boolean).join(' ').trim() || [prenom, nom].filter(Boolean).join(' ').trim();
+  const composed = [nom, prenom].filter(Boolean).join(' ').trim() || [prenom, nom].filter(Boolean).join(' ').trim();
+  if(composed) return composed;
+
+  // Dernier secours : scanner toutes les colonnes non techniques de la ligne Referents.
+  for(const [k,v] of Object.entries(r || {})){
+    if(k === 'id' || k === 'manualSort') continue;
+    const label = displayFromAnyCell(v);
+    if(label && !/^true|false$/i.test(label)) return label;
+  }
+  return '';
 }
+
 function rebuildContactIndexes(){
   CONTACT_MAP = {}; CONTACT_ID_BY_LABEL = {}; CONTACT_ID_BY_EMAIL = {};
   CONTACT_ROWS.forEach(r=>{
@@ -231,7 +300,7 @@ async function loadData(records){
       grist.docApi.fetchTable('Structures').catch(()=>({id:[]})),
       grist.docApi.fetchTable('Publics').catch(()=>({id:[]})),
       grist.docApi.fetchTable('Modalites').catch(()=>({id:[]})),
-      grist.docApi.fetchTable('Referents').catch(()=>({id:[]})),
+      fetchTableSmart(['Referents','Référents','Referent','Référent']).catch(()=>({id:[]})),
     ]);
     CONTACT_ROWS = toRows(contacts); STRUCT_ROWS = toRows(structures); REFERENT_ROWS = toRows(referents);
     rebuildContactIndexes();
@@ -274,14 +343,26 @@ function buildFilterControls(){
   const structureValues = [...new Set(ALL.flatMap(a => getStructures(a)).map(s => String(s||'').trim()).filter(Boolean))]
     .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
 
-  // Le filtre Référents doit lister les valeurs de la table Referents,
-  // et non l'ensemble de la table Contacts. La valeur du filtre est le libellé affiché.
-  const referentValues = [...new Set(REFERENT_ROWS
+  // Le filtre Référents liste les valeurs de la table Referents.
+  // Si la table contient une référence vers Contacts, la valeur est convertie en "Nom Prénom".
+  let referentValues = [...new Set(REFERENT_ROWS
     .map(referentFilterLabelFromRow)
     .map(s => String(s||'').trim())
     .filter(Boolean))]
     .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
 
+  // Secours : si la table Referents est vide ou inaccessible, on ne laisse pas le filtre vide ;
+  // on reprend les référents effectivement associés aux actions copil.
+  if(!referentValues.length){
+    referentValues = [...new Set(ALL
+      .flatMap(a => referentIdsFromAction(a).map(id => CONTACT_MAP[id]).filter(Boolean))
+      .map(s => String(s||'').trim())
+      .filter(Boolean))]
+      .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
+    console.warn('[widget-cartes-copil] Table Referents vide ou non résolue : filtre alimenté par les référents déjà inscrits.');
+  }
+
+  console.info('[widget-cartes-copil] Options filtre Référents :', referentValues);
   fillSelect('f-struct', structureValues, 'Toutes les structures');
   fillSelect('f-referent', referentValues, 'Tous les référents');
 }
