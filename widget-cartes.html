@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF</title>
+<!-- Version v44 : structure du nouveau contact choisie dans la table Structures -->
 <!-- Version v43 : ajout contact par Nom, Prénom, Email avec colonnes Contacts robustes -->
 <!-- Version v31 : écriture prudente des références Structure et Modalité -->
 <!-- Version v33 : dirty-fields tracking to avoid reference corruption -->
@@ -871,7 +872,7 @@ function readNewContactDraft() {
   if (!hasAny) return null;
 
   if (!nomRaw || !prenomRaw || !emailRaw || !structure) {
-    throw new Error('Pour ajouter un nouveau contact, renseigner le nom, le prénom, l’adresse email et la structure.');
+    throw new Error('Pour ajouter un nouveau contact, renseigner le nom, le prénom, l’adresse email et choisir une structure dans la liste.');
   }
 
   const email = emailRaw.toLowerCase().replace(/\s+/g, '');
@@ -1518,6 +1519,11 @@ function buildModalForm(a) {
   const axeOptions    = optionValues(window.AXE_VALUES, 'id_axe');
   const modalOptions  = optionValues(window.MODAL_VALUES, 'id_modalite');
   const structOptions = optionValues(window.STRUCT_VALUES, 'id_structure');
+  // Structures proposées pour la création d'un nouveau contact :
+  // on utilise prioritairement la table de référence Structures, pas les seules valeurs déjà présentes dans les actions.
+  const contactStructureOptions = (window.STRUCT_VALUES && window.STRUCT_VALUES.length)
+    ? [...new Set(window.STRUCT_VALUES.map(v => String(v || '').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr', {numeric:true}))
+    : structOptions;
   const contactOptions = (CONTACT_OPTIONS && CONTACT_OPTIONS.length)
     ? CONTACT_OPTIONS
     : (window.CONTACT_VALUES || []).map(v => ({value: CONTACT_LABEL_TO_ID[v] || v, label: v}));
@@ -1620,11 +1626,11 @@ function buildModalForm(a) {
           <input type="email" id="m-new-contact-email" placeholder="prenom.nom@igesr.gouv.fr" autocomplete="off">
         </div>
         <select id="m-new-contact-structure">
-          <option value="">Structure du contact…</option>
-          ${structOptions.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('')}
+          <option value="">Choisir une structure existante…</option>
+          ${contactStructureOptions.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('')}
         </select>
         <div class="new-contact-help">
-          Si l'adresse existe déjà dans Contacts, le widget la réutilise. Sinon il crée Nom Prénom, NOM, PRENOM, Email et Structure, puis ajoute ce contact à l'action.
+          La structure est choisie dans la table Structures. Si l'adresse existe déjà dans Contacts, le widget la réutilise. Sinon il crée Nom Prénom, NOM, PRENOM, Email et Structure, puis ajoute ce contact à l'action.
         </div>
       </div>
     </div>
