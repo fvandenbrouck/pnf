@@ -40,6 +40,8 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 }
 .tb-sel select:focus { border-color:var(--navy); background:#fff; }
 .count { font-family:'DM Mono',monospace; font-size:11px; color:var(--ink3); background:var(--lilas); padding:6px 12px; border-radius:999px; }
+.btn-download { font-family:'DM Sans',sans-serif; font-size:12px; font-weight:600; padding:8px 12px; border-radius:8px; cursor:pointer; border:1.5px solid var(--navy); background:var(--navy); color:#fff; white-space:nowrap; }
+.btn-download:hover { background:#0d2a52; border-color:#0d2a52; }
 .grid-wrap { height:calc(100vh - 58px); overflow-y:auto; padding:14px; }
 .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(390px,1fr)); gap:12px; }
 .card { background:var(--white); border:1.5px solid var(--border); border-radius:12px; overflow:hidden; cursor:pointer; transition:.15s; }
@@ -110,6 +112,7 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
   </div>
   <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Toutes les structures</option></select></div>
   <div class="tb-sel"><select id="f-referent" onchange="applyFilters()"><option value="">Tous les référents</option></select></div>
+  <button class="btn-download" onclick="downloadSelectionCsv()">Télécharger la sélection au format CSV</button>
   <span class="count" id="count">–</span>
 </div>
 <div class="grid-wrap"><div class="grid" id="grid"></div></div>
@@ -367,6 +370,61 @@ function buildFilterControls(){
   fillSelect('f-referent', referentValues, 'Tous les référents');
 }
 
+
+async function refreshReferentsTableAndFilters(){
+  try{
+    const referents = await fetchTableSmart(['Referents','Référents','Referent','Référent']).catch(()=>({id:[]}));
+    REFERENT_ROWS = toRows(referents);
+  } catch(e){
+    console.warn('[widget-cartes-copil] Impossible de rafraîchir la table Referents :', e);
+  }
+  buildFilterControls();
+}
+
+function csvCell(value){
+  const s = String(value ?? '').replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+
+function downloadSelectionCsv(){
+  const rows = (FILTERED || []).map(a => {
+    const refs = referentIdsFromAction(a).map(id => CONTACT_MAP[String(id)]).filter(Boolean);
+    return {
+      titre: String(a.titre || 'Sans titre'),
+      objectif: String(a.objectif || '').replace(/\n/g, ' ').trim(),
+      modalite: getModalite(a),
+      structure: getStructures(a).join(', '),
+      publics: getPublics(a).join(', '),
+      referents: refs.join(', ')
+    };
+  });
+
+  const headers = ['titre','objectif','modalité','structure','publics','referents'];
+  const lines = [headers.map(csvCell).join(';')];
+  rows.forEach(r => {
+    lines.push([
+      r.titre,
+      r.objectif,
+      r.modalite,
+      r.structure,
+      r.publics,
+      r.referents
+    ].map(csvCell).join(';'));
+  });
+
+  const csv = '\uFEFF' + lines.join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const date = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = `actions_copil_selection_${date}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 function applyFilters(){
   const q = document.getElementById('f-search').value.toLowerCase().trim();
   const structFilter = document.getElementById('f-struct')?.value || '';
@@ -507,7 +565,7 @@ async function saveReferents(){
     const idx=ALL.findIndex(a=>a.id===CURRENT_ACTION.id);
     if(idx>=0) ALL[idx][REFERENTS_COL]=['L', ...ids];
     // Recalculer les filtres puis le rendu pour que la carte affiche immédiatement les cartouches bleus.
-    buildFilterControls();
+    await refreshReferentsTableAndFilters();
     applyFilters();
     msg.textContent='✓ Référents enregistrés'; msg.className='msg ok';
     setTimeout(()=>closeModal(),900);
