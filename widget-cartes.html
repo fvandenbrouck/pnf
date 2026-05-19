@@ -1703,10 +1703,13 @@ function buildModalForm(a) {
     </div>
     <div class="modal-row">
       <div class="mfield">
-        <label>Journées stagiaires</label>
-        <input type="number" id="m-jours" min="0.1" step="0.1" inputmode="decimal" value="${a.journees_stagiaires ?? ''}" placeholder="Ex. 12.5">
+        <label>JS prévision</label>
+        <input type="number" id="m-js-prevision" min="0.1" step="0.1" inputmode="decimal" value="${a.JS_prevision ?? ''}" placeholder="Ex. 12.5">
       </div>
-      <div class="mfield"></div>
+      <div class="mfield">
+        <label>JS réalisé</label>
+        <input type="number" id="m-js-realise" min="0.1" step="0.1" inputmode="decimal" value="${a.JS_realise ?? ''}" placeholder="Ex. 12.5">
+      </div>
     </div>
     <div class="mfield full">
       <label>Structure(s) porteuse(s)</label>
@@ -1768,7 +1771,8 @@ function attachDirtyTracking() {
   bind('#m-titre', 'input', 'titre');
   bind('#m-objectif', 'input', 'objectif');
   bind('#m-gaia', 'input', 'code_gaia');
-  bind('#m-jours', 'input', 'jours');
+  bind('#m-js-prevision', 'input', 'js_prevision');
+  bind('#m-js-realise', 'input', 'js_realise');
   bind('#m-volet', 'change', 'volet');
   bind('#m-axe', 'change', 'axe');
   bind('#m-modal', 'change', 'modalite');
@@ -1792,7 +1796,8 @@ function readFormSnapshot() {
     titre: String(byId('m-titre')?.value || '').trim(),
     objectif: String(byId('m-objectif')?.value || '').trim(),
     code_gaia: String(byId('m-gaia')?.value || '').trim(),
-    jours: String(byId('m-jours')?.value || '').trim().replace(',', '.'),
+    js_prevision: String(byId('m-js-prevision')?.value || '').trim().replace(',', '.'),
+    js_realise: String(byId('m-js-realise')?.value || '').trim().replace(',', '.'),
     volet: String(byId('m-volet')?.value || '').trim(),
     axe: String(byId('m-axe')?.value || '').trim(),
     modalite: String(byId('m-modal')?.value || '').trim(),
@@ -1906,17 +1911,25 @@ async function saveRecord() {
   const finVal = document.getElementById('m-fin').value;
   const actionAxeRaw = document.getElementById('m-action-axe').value;
 
-  const joursRaw = document.getElementById('m-jours').value.trim().replace(',', '.');
-  let joursVal = null;
-  if (joursRaw !== '') {
-    joursVal = Number(joursRaw);
-    if (!Number.isFinite(joursVal) || joursVal <= 0) {
-      msg.textContent = '✗ Le nombre de journées stagiaires doit être un nombre positif.';
+  const jsPrevisionRaw = document.getElementById('m-js-prevision').value.trim().replace(',', '.');
+  const jsRealiseRaw = document.getElementById('m-js-realise').value.trim().replace(',', '.');
+
+  const parsePositiveFloat = (raw, label) => {
+    if (raw === '') return null;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) {
+      msg.textContent = `✗ ${label} doit être un nombre positif.`;
       msg.className = 'msg-save err';
       btn.disabled = false;
-      return;
+      return undefined;
     }
-  }
+    return value;
+  };
+
+  const jsPrevisionVal = parsePositiveFloat(jsPrevisionRaw, 'JS prévision');
+  if (jsPrevisionVal === undefined) return;
+  const jsRealiseVal = parsePositiveFloat(jsRealiseRaw, 'JS réalisé');
+  if (jsRealiseVal === undefined) return;
 
   const toTs = v => v ? Math.floor(new Date(v + 'T12:00:00').getTime()/1000) : null;
 
@@ -1941,7 +1954,8 @@ async function saveRecord() {
   if (formFieldChanged('titre', titreVal)) fields.titre = titreVal;
   if (formFieldChanged('objectif', objectifVal)) fields.objectif = objectifVal;
   if (formFieldChanged('code_gaia', gaiaVal)) fields.code_gaia = gaiaVal;
-  if (formFieldChanged('jours', joursRaw)) fields.journees_stagiaires = joursRaw === '' ? null : joursVal;
+  if (formFieldChanged('js_prevision', jsPrevisionRaw)) fields.JS_prevision = jsPrevisionRaw === '' ? null : jsPrevisionVal;
+  if (formFieldChanged('js_realise', jsRealiseRaw)) fields.JS_realise = jsRealiseRaw === '' ? null : jsRealiseVal;
   if (formFieldChanged('debut', debutVal)) fields.date_debut = toTs(debutVal);
   if (formFieldChanged('fin', finVal)) fields.date_fin = toTs(finVal);
 
@@ -2111,6 +2125,15 @@ function render() {
           <div class="meta-row">
             <span class="meta-label">Modalité</span>
             <div class="meta-value"><span class="tag tag-modal">${esc(modalLib)}</span></div>
+          </div>` : ''}
+
+          ${(a.JS_prevision || a.JS_realise) ? `
+          <div class="meta-row">
+            <span class="meta-label">JS</span>
+            <div class="meta-value tags">
+              ${a.JS_prevision ? `<span class="tag tag-days">Prévision&nbsp;: ${esc(String(a.JS_prevision).replace('.', ','))}</span>` : ''}
+              ${a.JS_realise ? `<span class="tag tag-days">Réalisé&nbsp;: ${esc(String(a.JS_realise).replace('.', ','))}</span>` : ''}
+            </div>
           </div>` : ''}
 
           ${publics.length ? `
