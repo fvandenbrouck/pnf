@@ -216,7 +216,18 @@ html, body {
   white-space: nowrap;
   flex-shrink: 0;
 }
+.card-top-left { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .card-top-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.chip-annee {
+  font-family: 'DM Mono', monospace;
+  font-size: 8.5px;
+  font-weight: 600;
+  color: #1a6b65;
+  background: rgba(168,221,216,.35);
+  padding: 2px 7px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
 .chip-gaia {
   font-family: 'DM Mono', monospace;
   font-size: 8.5px;
@@ -1065,6 +1076,7 @@ function cardHtml(a, i) {
   const objectif = firstText(a, 'objectif').replace(/\n/g, ' ').trim();
   const axeLib = firstText(a, 'id_axe');
   const voletLib = firstText(a, 'id_volet');
+  const annee = firstText(a, 'annee_scolaire');
   const actionAxe = actionAxeText(a);
   const modalLib = firstText(a, 'id_modalite');
   const structs = listText(a, 'id_structure');
@@ -1082,7 +1094,10 @@ function cardHtml(a, i) {
       <div class="card-band ${band}"></div>
       <div class="card-body">
         <div class="card-top">
-          ${voletLib ? `<span class="chip-volet">${esc(voletLib)}</span>` : '<span></span>'}
+          <span class="card-top-left">
+            ${annee ? `<span class="chip-annee">${esc(annee)}</span>` : ''}
+            ${voletLib ? `<span class="chip-volet">${esc(voletLib)}</span>` : ''}
+          </span>
           <span class="card-top-right">
             ${gaia ? `<span class="chip-gaia">GAIA&nbsp;${esc(gaia)}</span>` : ''}
             ${degres.length ? `<span class="chip-degre">${esc(degres.join(', '))}</span>` : ''}
