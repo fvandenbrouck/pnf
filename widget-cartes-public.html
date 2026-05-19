@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Catalogue public des actions de formation</title>
+<!-- Version v46 : filtre Degrés robuste + filtre Année scolaire -->
 <!-- Version corrigée : filtre Degrés depuis Degres.nom_deg -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -447,6 +448,7 @@ html, body {
     </svg>
     <input type="text" id="f-search" placeholder="Rechercher titre, objectif, public…" oninput="applyFilters()">
   </div>
+  <div class="tb-sel"><select id="f-annee"  onchange="applyFilters()"><option value="">Toutes les années</option></select></div>
   <div class="tb-sel"><select id="f-degre"  onchange="applyFilters()"><option value="">Tous les degrés</option></select></div>
   <div class="tb-sel"><select id="f-axe"    onchange="applyFilters()"><option value="">Tous les axes</option></select></div>
   <div class="tb-sel"><select id="f-volet"  onchange="applyFilters()"><option value="">Tous les volets</option></select></div>
@@ -487,6 +489,10 @@ let PUBLIC_MAP = {};
 let PUBLIC_VALUES = [];
 let DEGRE_MAP = {};
 let DEGRE_VALUES = [];
+const DEFAULT_DEGRE_ROWS = [
+  {id: 1, nom_deg: 'Premier degré'},
+  {id: 2, nom_deg: 'Second degré'}
+];
 let selectedId = null;
 
 const ROMAN = {I:1,II:2,III:3,IV:4,V:5,VI:6,VII:7,VIII:8};
@@ -507,6 +513,7 @@ const FIELD_ALIASES = {
   id_publics: ['id_publics', 'Publics_cibles', 'Publics cibles', 'publics_cibles', 'Publics'],
   journees_stagiaires: ['journees_stagiaires', 'Journées_stagiaires', 'Journées stagiaires', 'journees'],
   degre: ['Degre', 'Degres', 'Degré', 'Degrés', 'id_degre', 'id_degres', 'degre'],
+  annee_scolaire: ['Annee_scolaire', 'Année_scolaire', 'Année scolaire', 'Annee scolaire', 'annee_scolaire', 'annee', 'Année'],
   periode: ['periode', 'Période', 'Periode']
 };
 
@@ -615,6 +622,8 @@ function buildDegreMap(rows) {
     add(r.id, label);
     add(`Degres[${r.id}]`, label);
     add(`R,Degres,${r.id}`, label);
+    add(`Degre[${r.id}]`, label);
+    add(`R,Degre,${r.id}`, label);
     add(label, label);
   });
   return Object.fromEntries(entries);
@@ -622,12 +631,17 @@ function buildDegreMap(rows) {
 
 function degreValue(v) {
   if (v === null || v === undefined || v === '') return '';
+  if (!Object.keys(DEGRE_MAP).length) {
+    DEGRE_MAP = buildDegreMap(DEFAULT_DEGRE_ROWS);
+    DEGRE_VALUES = DEFAULT_DEGRE_ROWS.map(degreLabelFromRow);
+  }
   if (Array.isArray(v)) return asList(v).map(degreValue).filter(Boolean).join(', ');
   if (typeof v === 'object') {
     const label = degreLabelFromRow(v) || cleanDisplay(v);
     return DEGRE_MAP[label] || label;
   }
   const key = String(v || '').trim();
+  if (!key || key === 'L' || key === 'R' || key === 'Degres' || key === 'Degre') return '';
   return DEGRE_MAP[key] || key;
 }
 
@@ -785,18 +799,21 @@ async function loadPublicValuesIfAllowed() {
 
 async function loadDegreValuesIfAllowed() {
   try {
-    if (!grist.docApi || !grist.docApi.fetchTable) return;
+    if (!grist.docApi || !grist.docApi.fetchTable) throw new Error('docApi indisponible');
     const table = await grist.docApi.fetchTable('Degres');
     const rows = (table.id || []).map((id, i) => {
       const row = { id };
       Object.keys(table).forEach(k => { if (k !== 'id') row[k] = table[k][i]; });
       return row;
-    });
-    DEGRE_MAP = buildDegreMap(rows);
-    DEGRE_VALUES = [...new Set(rows.map(degreLabelFromRow).filter(Boolean))]
+    }).filter(r => degreLabelFromRow(r));
+    const effectiveRows = rows.length ? rows : DEFAULT_DEGRE_ROWS;
+    DEGRE_MAP = buildDegreMap(effectiveRows);
+    DEGRE_VALUES = [...new Set(effectiveRows.map(degreLabelFromRow).filter(Boolean))]
       .sort((a,b) => a.localeCompare(b, 'fr', {numeric:true}));
   } catch(e) {
-    console.warn('Degres non accessible : le filtre Degrés sera construit à partir des actions existantes.', e);
+    console.warn('Degres non accessible : utilisation du repli Premier degré / Second degré.', e);
+    DEGRE_MAP = buildDegreMap(DEFAULT_DEGRE_ROWS);
+    DEGRE_VALUES = DEFAULT_DEGRE_ROWS.map(degreLabelFromRow);
   }
 }
 
@@ -884,6 +901,7 @@ function daysText(a) {
 }
 
 function buildFilters() {
+  fillFilter('f-annee',  a => [firstText(a, 'annee_scolaire')]);
   fillFilterFromValues('f-degre', DEGRE_VALUES.length ? DEGRE_VALUES : [...new Set(ALL.flatMap(degreList))]);
   fillFilter('f-axe',    a => [firstText(a, 'id_axe')]);
   fillFilter('f-volet',  a => [firstText(a, 'id_volet')]);
@@ -955,6 +973,7 @@ function searchableText(a) {
     firstText(a, 'id_axe'),
     actionAxeText(a),
     firstText(a, 'id_modalite'),
+    firstText(a, 'annee_scolaire'),
     ...listText(a, 'id_structure'),
     ...publicList(a),
     ...degreList(a)
@@ -962,6 +981,7 @@ function searchableText(a) {
 }
 
 function applyFilters() {
+  const annee  = document.getElementById('f-annee').value;
   const degre  = document.getElementById('f-degre').value;
   const axe    = document.getElementById('f-axe').value;
   const volet  = document.getElementById('f-volet').value;
@@ -970,6 +990,7 @@ function applyFilters() {
   const search = document.getElementById('f-search').value.toLowerCase().trim();
 
   FILTERED = ALL.filter(a => {
+    if (!matchText(firstText(a, 'annee_scolaire'), annee)) return false;
     if (!matchList(degreList(a), degre)) return false;
     if (!matchText(firstText(a, 'id_axe'), axe)) return false;
     if (!matchText(firstText(a, 'id_volet'), volet)) return false;
@@ -984,7 +1005,7 @@ function applyFilters() {
 }
 
 function resetFilters() {
-  ['f-degre', 'f-axe', 'f-volet', 'f-struct', 'f-public'].forEach(id => document.getElementById(id).value = '');
+  ['f-annee', 'f-degre', 'f-axe', 'f-volet', 'f-struct', 'f-public'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('f-search').value = '';
   applyFilters();
 }
@@ -1019,6 +1040,7 @@ function openModal(a) {
     ${section('Objectif', firstText(a, 'objectif') ? `<div class="detail-text">${esc(firstText(a, 'objectif'))}</div>` : '')}
     <div class="detail-grid">
       ${section('Degré', tagList(degres, 'tag-axe'))}
+      ${section('Année scolaire', firstText(a, 'annee_scolaire') ? `<div class="detail-tags"><span class="tag tag-days">${esc(firstText(a, 'annee_scolaire'))}</span></div>` : '')}
       ${section('Période', periode ? `<div class="detail-tags"><span class="tag tag-periode">${esc(periode)}</span></div>` : '')}
       ${section('Volet', firstText(a, 'id_volet') ? `<div class="detail-tags"><span class="tag tag-axe">${esc(firstText(a, 'id_volet'))}</span></div>` : '')}
       ${section('Axe', axeLib ? `<div class="detail-tags"><span class="tag tag-axe">${esc(axeLib)}</span></div>` : '')}
