@@ -19,6 +19,26 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 .tb-search svg { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--ink3); }
 .tb-search input { width:100%; padding:8px 12px 8px 34px; font-size:12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; outline:none; }
 .tb-search input:focus { border-color:var(--navy); background:#fff; }
+.tb-sel { min-width:190px; }
+.tb-sel select {
+  width:100%;
+  font-family:'DM Sans',sans-serif;
+  font-size:12px;
+  color:var(--ink);
+  background:var(--bg);
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:8px 28px 8px 10px;
+  outline:none;
+  appearance:none;
+  -webkit-appearance:none;
+  cursor:pointer;
+  transition:border-color .12s, background .12s;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%238a8070' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 9px center;
+}
+.tb-sel select:focus { border-color:var(--navy); background:#fff; }
 .count { font-family:'DM Mono',monospace; font-size:11px; color:var(--ink3); background:var(--lilas); padding:6px 12px; border-radius:999px; }
 .grid-wrap { height:calc(100vh - 58px); overflow-y:auto; padding:14px; }
 .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(390px,1fr)); gap:12px; }
@@ -88,6 +108,8 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
     <input type="text" id="f-search" placeholder="Rechercher une action copil…" oninput="applyFilters()">
   </div>
+  <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Toutes les structures</option></select></div>
+  <div class="tb-sel"><select id="f-referent" onchange="applyFilters()"><option value="">Tous les référents</option></select></div>
   <span class="count" id="count">–</span>
 </div>
 <div class="grid-wrap"><div class="grid" id="grid"></div></div>
@@ -188,6 +210,7 @@ async function loadData(records){
     MODAL_MAP = Object.fromEntries(toRows(modalites).map(r=>[r.id, simpleLabelFromRow(r)]).filter(([,v])=>v));
     STRUCT_VALUES = [...new Set(STRUCT_ROWS.map(structureLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
     ALL = (records||[]).map(r=>({id:r.id,...r})).filter(isCopilEnabled);
+    buildFilterControls();
     applyFilters();
   } catch(e){ console.error(e); document.getElementById('grid').innerHTML = `<div class="empty"><p>Erreur de chargement</p><span>${esc(e.message)}</span></div>`; }
   finally{ showLoader(false); }
@@ -197,11 +220,60 @@ grist.ready({requiredAccess:'full', columns:[]});
 grist.onRecords(loadData);
 grist.onRecord(record=>{ if(!record) return; selectedId=record.id; document.querySelectorAll('.card').forEach(el=>el.classList.toggle('selected', +el.dataset.id===selectedId)); });
 
+
+function fillSelect(selId, values, firstLabel){
+  const sel = document.getElementById(selId);
+  if(!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = `<option value="">${esc(firstLabel)}</option>`;
+  const seen = new Set();
+  (values || []).forEach(item => {
+    const value = String(item && item.value !== undefined ? item.value : item || '').trim();
+    const label = String(item && item.label !== undefined ? item.label : item || '').trim();
+    if(!value || !label || seen.has(value)) return;
+    seen.add(value);
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    sel.appendChild(option);
+  });
+  if([...sel.options].some(o => o.value === cur)) sel.value = cur;
+}
+
+function buildFilterControls(){
+  const structureValues = [...new Set(ALL.flatMap(a => getStructures(a)).map(s => String(s||'').trim()).filter(Boolean))]
+    .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
+
+  const referentIds = [...new Set(ALL.flatMap(a => referentIdsFromAction(a)).map(id => String(id||'').trim()).filter(Boolean))]
+    .filter(id => CONTACT_MAP[id])
+    .map(id => ({value:id, label:CONTACT_MAP[id]}))
+    .sort((a,b)=>a.label.localeCompare(b.label,'fr',{numeric:true}));
+
+  fillSelect('f-struct', structureValues, 'Toutes les structures');
+  fillSelect('f-referent', referentIds, 'Tous les référents');
+}
+
 function applyFilters(){
   const q = document.getElementById('f-search').value.toLowerCase().trim();
+  const structFilter = document.getElementById('f-struct')?.value || '';
+  const referentFilter = document.getElementById('f-referent')?.value || '';
+
   FILTERED = ALL.filter(a=>{
+    const structs = getStructures(a);
+    const referentIds = referentIdsFromAction(a).map(id=>String(id));
+
+    if(structFilter && !structs.includes(structFilter)) return false;
+    if(referentFilter && !referentIds.includes(String(referentFilter))) return false;
+
     if(!q) return true;
-    const hay = [a.titre, a.objectif, getModalite(a), getStructures(a).join(' '), getPublics(a).join(' '), referentIdsFromAction(a).map(id=>CONTACT_MAP[id]).join(' ')].join(' ').toLowerCase();
+    const hay = [
+      a.titre,
+      a.objectif,
+      getModalite(a),
+      structs.join(' '),
+      getPublics(a).join(' '),
+      referentIds.map(id=>CONTACT_MAP[id]).join(' ')
+    ].join(' ').toLowerCase();
     return hay.includes(q);
   });
   document.getElementById('count').textContent = `${FILTERED.length} action${FILTERED.length>1?'s':''}`;
