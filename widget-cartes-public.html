@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Catalogue public des actions de formation</title>
+<!-- Version corrigée : filtre Degrés depuis Degres.nom_deg -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -484,6 +485,8 @@ let ACTION_AXE_MAP = {};
 let ACTION_AXE_MAP_READY = false;
 let PUBLIC_MAP = {};
 let PUBLIC_VALUES = [];
+let DEGRE_MAP = {};
+let DEGRE_VALUES = [];
 let selectedId = null;
 
 const ROMAN = {I:1,II:2,III:3,IV:4,V:5,VI:6,VII:7,VIII:8};
@@ -503,7 +506,7 @@ const FIELD_ALIASES = {
   id_contacts: ['id_contacts', 'Contacts_pilotes', 'Contacts / pilotes', 'contacts_pilotes', 'Contacts'],
   id_publics: ['id_publics', 'Publics_cibles', 'Publics cibles', 'publics_cibles', 'Publics'],
   journees_stagiaires: ['journees_stagiaires', 'Journées_stagiaires', 'Journées stagiaires', 'journees'],
-  degre: ['Degre', 'Degré', 'degre'],
+  degre: ['Degre', 'Degres', 'Degré', 'Degrés', 'id_degre', 'id_degres', 'degre'],
   periode: ['periode', 'Période', 'Periode']
 };
 
@@ -593,6 +596,48 @@ function publicValue(v) {
 
 function publicList(a) {
   return asList(get(a, 'id_publics')).map(publicValue).flatMap(v => String(v || '').split(/\s*,\s*/)).map(v => v.trim()).filter(Boolean);
+}
+
+
+function degreLabelFromRow(r) {
+  return firstRowText(r, ['nom_deg', 'Nom_deg', 'NOM_DEG', 'Degres', 'Degrés', 'libelle', 'Libelle', 'Libellé', 'label', 'Label', 'nom', 'Nom']);
+}
+
+function buildDegreMap(rows) {
+  const entries = [];
+  const add = (k, label) => {
+    const key = String(k ?? '').trim();
+    if (key && label) entries.push([key, label]);
+  };
+  rows.forEach(r => {
+    const label = degreLabelFromRow(r);
+    if (!label) return;
+    add(r.id, label);
+    add(`Degres[${r.id}]`, label);
+    add(`R,Degres,${r.id}`, label);
+    add(label, label);
+  });
+  return Object.fromEntries(entries);
+}
+
+function degreValue(v) {
+  if (v === null || v === undefined || v === '') return '';
+  if (Array.isArray(v)) return asList(v).map(degreValue).filter(Boolean).join(', ');
+  if (typeof v === 'object') {
+    const label = degreLabelFromRow(v) || cleanDisplay(v);
+    return DEGRE_MAP[label] || label;
+  }
+  const key = String(v || '').trim();
+  return DEGRE_MAP[key] || key;
+}
+
+function degreList(a) {
+  return asList(get(a, 'degre'))
+    .map(degreValue)
+    .flatMap(v => String(v || '').split(/\s*,\s*/))
+    .map(v => v.trim())
+    .filter(Boolean)
+    .filter(v => v !== 'L' && v !== 'R' && v !== 'Degres');
 }
 
 function listText(a, key, cleaner = cleanDisplay) {
@@ -737,6 +782,24 @@ async function loadPublicValuesIfAllowed() {
   }
 }
 
+
+async function loadDegreValuesIfAllowed() {
+  try {
+    if (!grist.docApi || !grist.docApi.fetchTable) return;
+    const table = await grist.docApi.fetchTable('Degres');
+    const rows = (table.id || []).map((id, i) => {
+      const row = { id };
+      Object.keys(table).forEach(k => { if (k !== 'id') row[k] = table[k][i]; });
+      return row;
+    });
+    DEGRE_MAP = buildDegreMap(rows);
+    DEGRE_VALUES = [...new Set(rows.map(degreLabelFromRow).filter(Boolean))]
+      .sort((a,b) => a.localeCompare(b, 'fr', {numeric:true}));
+  } catch(e) {
+    console.warn('Degres non accessible : le filtre Degrés sera construit à partir des actions existantes.', e);
+  }
+}
+
 function cleanActionAxeKey(raw) {
   if (raw === null || raw === undefined) return '';
   if (Array.isArray(raw)) {
@@ -821,7 +884,7 @@ function daysText(a) {
 }
 
 function buildFilters() {
-  fillFilter('f-degre',  a => listText(a, 'degre'));
+  fillFilterFromValues('f-degre', DEGRE_VALUES.length ? DEGRE_VALUES : [...new Set(ALL.flatMap(degreList))]);
   fillFilter('f-axe',    a => [firstText(a, 'id_axe')]);
   fillFilter('f-volet',  a => [firstText(a, 'id_volet')]);
   fillFilter('f-struct', a => listText(a, 'id_structure'));
@@ -894,7 +957,7 @@ function searchableText(a) {
     firstText(a, 'id_modalite'),
     ...listText(a, 'id_structure'),
     ...publicList(a),
-    ...listText(a, 'degre')
+    ...degreList(a)
   ].join(' ').toLowerCase();
 }
 
@@ -907,7 +970,7 @@ function applyFilters() {
   const search = document.getElementById('f-search').value.toLowerCase().trim();
 
   FILTERED = ALL.filter(a => {
-    if (!matchList(listText(a, 'degre'), degre)) return false;
+    if (!matchList(degreList(a), degre)) return false;
     if (!matchText(firstText(a, 'id_axe'), axe)) return false;
     if (!matchText(firstText(a, 'id_volet'), volet)) return false;
     if (!matchList(listText(a, 'id_structure'), struct)) return false;
@@ -942,7 +1005,7 @@ function openModal(a) {
 
   const publics = publicList(a);
   const structs = listText(a, 'id_structure');
-  const degres = listText(a, 'degre');
+  const degres = degreList(a);
   const modalite = firstText(a, 'id_modalite');
   const actionAxe = actionAxeText(a);
   const gaia = firstText(a, 'code_gaia');
@@ -984,7 +1047,7 @@ function cardHtml(a, i) {
   const modalLib = firstText(a, 'id_modalite');
   const structs = listText(a, 'id_structure');
   const publics = publicList(a);
-  const degres = listText(a, 'degre');
+  const degres = degreList(a);
   const periode = periodeText(a);
   const gaia = firstText(a, 'code_gaia');
   const days = daysText(a);
@@ -1037,7 +1100,7 @@ grist.ready({ requiredAccess: 'full', columns: [] });
 grist.onRecords(async (records) => {
   showLoader(true);
   try {
-    await Promise.all([loadActionAxeMapIfAllowed(), loadPublicValuesIfAllowed()]);
+    await Promise.all([loadActionAxeMapIfAllowed(), loadPublicValuesIfAllowed(), loadDegreValuesIfAllowed()]);
     ALL = (records || []).map(r => ({ id: r.id, ...r }));
     buildFilters();
     applyFilters();
