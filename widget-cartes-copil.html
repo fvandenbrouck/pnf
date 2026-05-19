@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF — Comité de pilotage</title>
-<!-- Version v8 : année scolaire sur les cartes, filtre Années et export CSV enrichi -->
+<!-- Version v9 : cartouche année scolaire visible sur les cartes -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -142,7 +142,7 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
   </div>
 </div>
 <script>
-console.info('[widget-cartes-copil] version v8 années + export CSV chargé');
+console.info('[widget-cartes-copil] version v9 année visible sur les cartes chargé');
 let ALL = [], FILTERED = [], CURRENT_ACTION = null, selectedId = null;
 let CONTACT_ROWS = [], STRUCT_ROWS = [], REFERENT_ROWS = [], ANNEE_ROWS = [];
 let CONTACT_MAP = {}, CONTACT_ID_BY_LABEL = {}, CONTACT_ID_BY_EMAIL = {};
@@ -489,10 +489,16 @@ function render(){
   const grid=document.getElementById('grid');
   if(!FILTERED.length){ grid.innerHTML=`<div class="empty"><p>Aucune action copil</p><span>Activez is_copil sur les actions concernées</span></div>`; return; }
   grid.innerHTML = FILTERED.map(a=>{
-    const modal=getModalite(a); const structs=getStructures(a); const publics=getPublics(a); const refs=referentIdsFromAction(a).map(id=>CONTACT_MAP[id]).filter(Boolean);
+    const modal=getModalite(a);
+    const structs=getStructures(a);
+    const publics=getPublics(a);
+    const refs=referentIdsFromAction(a).map(id=>CONTACT_MAP[id]).filter(Boolean);
     const objectif = String(a.objectif||'').replace(/\n/g,' ').trim();
+    const annee = getAnnee(a);
+    const volet = getVolet(a);
     return `<div class="card${a.id===selectedId?' selected':''}" data-id="${a.id}" onclick="openModal(${a.id})">
       <div class="card-band"></div><div class="card-body">
+      ${(annee || volet) ? `<div class="card-top">${annee ? `<span class="chip-annee">${esc(annee)}</span>` : ''}${volet ? `<span class="chip-volet">${esc(volet)}</span>` : ''}</div>` : ''}
       <div class="card-title">${esc(a.titre||'Sans titre')}</div>
       ${objectif?`<div class="card-objectif">${esc(objectif)}</div>`:''}
       <div class="card-sep"></div>
