@@ -494,10 +494,9 @@ function render(){
     const refs=referentIdsFromAction(a).map(id=>CONTACT_MAP[id]).filter(Boolean);
     const objectif = String(a.objectif||'').replace(/\n/g,' ').trim();
     const annee = getAnnee(a);
-    const volet = getVolet(a);
     return `<div class="card${a.id===selectedId?' selected':''}" data-id="${a.id}" onclick="openModal(${a.id})">
       <div class="card-band"></div><div class="card-body">
-      ${(annee || volet) ? `<div class="card-top">${annee ? `<span class="chip-annee">${esc(annee)}</span>` : ''}${volet ? `<span class="chip-volet">${esc(volet)}</span>` : ''}</div>` : ''}
+      ${annee ? `<div class="card-top"><span class="chip-annee">${esc(annee)}</span></div>` : ''}
       <div class="card-title">${esc(a.titre||'Sans titre')}</div>
       ${objectif?`<div class="card-objectif">${esc(objectif)}</div>`:''}
       <div class="card-sep"></div>
@@ -512,7 +511,7 @@ function openModal(id){
   const a=ALL.find(x=>x.id===id); if(!a) return;
   CURRENT_ACTION=a; selectedId=id; SELECTED_REFERENT_IDS=new Set(referentIdsFromAction(a));
   document.getElementById('modal-title').textContent=a.titre||'Sans titre';
-  document.getElementById('modal-meta').textContent=['Comité de pilotage', getAnnee(a), getVolet(a), 'référents'].filter(Boolean).join(' · ');
+  document.getElementById('modal-meta').textContent=['Comité de pilotage', getAnnee(a), 'référents'].filter(Boolean).join(' · ');
   buildModalBody();
   document.getElementById('msg-save').textContent=''; document.getElementById('msg-save').className='msg';
   document.getElementById('overlay').classList.remove('hidden');
