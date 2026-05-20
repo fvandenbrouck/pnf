@@ -189,6 +189,25 @@ html, body {
   box-shadow: 0 4px 12px rgba(27,58,107,.18);
 }
 
+.btn-export {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--white);
+  border: 1px solid var(--navy);
+  color: var(--navy);
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .12s;
+  white-space: nowrap;
+}
+.btn-export:hover {
+  background: var(--navy-l);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(27,58,107,.12);
+}
+
 .count {
   font-family: 'DM Mono', monospace;
   font-size: 10px;
@@ -636,6 +655,7 @@ html, body {
   </div>
   <div class="tb-sel"><select id="f-modal"  onchange="applyFilters()"><option value="">Toutes les modalités</option></select></div>
   <button class="btn-reset" onclick="resetFilters()" title="Réinitialiser">✕</button>
+  <button class="btn-export" onclick="downloadFilteredCSV()">Télécharger CSV</button>
   <button class="btn-new" onclick="openCreateModal()">+ Inscrire une action</button>
   <span class="count" id="count">–</span>
 </div>
@@ -1158,7 +1178,7 @@ function actionAxeRefId(v) {
 
 function getActionAxe(action) {
   if (!action) return '';
-  const keys = [ACTION_COL, 'id_action_axe', 'id_action_referentiel', 'action_axe', 'action_schema', 'Action_schema', 'Action_sch_ma', 'Action_schéma', 'Action (schéma)'];
+  const keys = [ACTION_COL, 'id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'];
   for (const k of keys) {
     if (Object.prototype.hasOwnProperty.call(action, k) && action[k] !== undefined && action[k] !== null && action[k] !== '') return action[k];
   }
@@ -1311,7 +1331,7 @@ grist.onRecords(async (records) => {
     console.info('[widget-cartes] Options Degres', DEGRE_OPTIONS);
 
     ALL = records.map(r => ({ id: r.id, ...r }));
-    ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_schema', 'Action_schema', 'Action_sch_ma', 'Action_schéma', 'Action (schéma)'], ACTION_COL);
+    ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'], ACTION_COL);
     DEGREE_ACTION_COL = detectExistingColumn(ALL, ['Degre', 'Degres', 'id_degre', 'id_degres', 'Degré', 'Degrés', 'degre', 'degres'], DEGREE_ACTION_COL);
     // Colonne réelle dans Actions_formation : Contacts.
     // Ne pas détecter id_contacts : cette colonne n'existe pas et provoque un KeyError à l'enregistrement.
@@ -1671,7 +1691,7 @@ function buildModalForm(a) {
         </select>
       </div>
       <div class="mfield">
-        <label>Action (schéma directeur)</label>
+        <label>Action (référentiel)</label>
         <select id="m-action-axe">
           <option value="">—</option>
           ${ACTION_AXE_OPTIONS.map(o=>`<option value="${esc(o.value)}"${selectedAction(actionVal, o)}>${esc(o.label)}</option>`).join('')}
@@ -2037,6 +2057,87 @@ async function saveRecord() {
   } finally {
     btn.disabled = false;
   }
+}
+
+
+// ── Export CSV de la sélection filtrée ─────────────────────────────────────
+function csvEscape(value) {
+  const s = String(value ?? '').replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+
+function csvJoinList(values) {
+  return (values || [])
+    .map(v => String(v || '').trim())
+    .filter(Boolean)
+    .join(' | ');
+}
+
+function dateStampForFile() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function downloadFilteredCSV() {
+  const rows = FILTERED || [];
+  if (!rows.length) {
+    alert('Aucune action à exporter avec les filtres actuels.');
+    return;
+  }
+
+  const headers = [
+    'titre',
+    'objectif',
+    'annee_scolaire',
+    'volet',
+    'axe',
+    'action_referentiel',
+    'structure',
+    'modalite',
+    'publics',
+    'contacts',
+    'degres',
+    'JS_prevision',
+    'JS_realise',
+    'code_gaia',
+    'periode'
+  ];
+
+  const data = rows.map(a => ({
+    titre: a.titre || '',
+    objectif: a.objectif || '',
+    annee_scolaire: anneeLabelFromValue(getAnnee(a)),
+    volet: a.id_volet || '',
+    axe: a.id_axe || '',
+    action_referentiel: actionAxeDisplay(getActionAxe(a)),
+    structure: csvJoinList(asList(a.id_structure).filter(Boolean)),
+    modalite: a.id_modalite || '',
+    publics: csvJoinList(publicValues(a)),
+    contacts: csvJoinList(contactValues(a)),
+    degres: degreLabelFromValue(getDegre(a)),
+    JS_prevision: a.JS_prevision ?? '',
+    JS_realise: a.JS_realise ?? '',
+    code_gaia: a.code_gaia || '',
+    periode: a.periode || ''
+  }));
+
+  const csvLines = [
+    headers.join(';'),
+    ...data.map(row => headers.map(h => csvEscape(row[h])).join(';'))
+  ];
+
+  const blob = new Blob(['\ufeff' + csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `actions_formation_selection_${dateStampForFile()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ── Rendu ──────────────────────────────────────────────────────────────────
