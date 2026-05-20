@@ -517,7 +517,7 @@ const FIELD_ALIASES = {
   date_fin: ['date_fin', 'Date_fin', 'Date fin'],
   id_volet: ['id_volet', 'Volet', 'volet'],
   id_axe: ['id_axe', 'Axe', 'axe'],
-  action_axe: ['action_axe_affichage', 'Action_axe_affichage', 'Action complète', 'Action_complete', 'Action du référentiel', 'id_action_referentiel', 'id_action_axe', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_référentiel', 'Action_r_f_rentiel', 'Action (référentiel)'],
+  action_axe: ['action_axe_affichage', 'Action_axe_affichage', 'Action complète', 'Action_complete', 'Action du schéma directeur', 'id_action_schema', 'id_action_axe', 'action_axe', 'action_schema', 'Action_schema', 'Action_schéma', 'Action_sch_ma', 'Action (schéma directeur)'],
   id_structure: ['id_structure', 'Structure_porteuse', 'Structure porteuse', 'structures', 'Structures'],
   id_modalite: ['id_modalite', 'Modalite', 'Modalité', 'modalite'],
   id_contacts: ['id_contacts', 'Contacts_pilotes', 'Contacts / pilotes', 'contacts_pilotes', 'Contacts'],
@@ -1055,7 +1055,7 @@ function openModal(a) {
       ${section('Période', periode ? `<div class="detail-tags"><span class="tag tag-periode">${esc(periode)}</span></div>` : '')}
       ${section('Volet', firstText(a, 'id_volet') ? `<div class="detail-tags"><span class="tag tag-axe">${esc(firstText(a, 'id_volet'))}</span></div>` : '')}
       ${section('Axe', axeLib ? `<div class="detail-tags"><span class="tag tag-axe">${esc(axeLib)}</span></div>` : '')}
-      ${section('Action du référentiel', actionAxe ? `<div class="detail-text">${esc(actionAxe)}</div>` : '')}
+      ${section('Action du schéma directeur', actionAxe ? `<div class="detail-text">${esc(actionAxe)}</div>` : '')}
       ${section('Modalité', modalite ? `<div class="detail-tags"><span class="tag tag-modal">${esc(modalite)}</span></div>` : '')}
       ${section('Structure porteuse', tagList(structs, 'tag-struct'))}
       ${section('Publics cibles', tagList(publics, 'tag-public'))}
