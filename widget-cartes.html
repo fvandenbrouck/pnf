@@ -1158,7 +1158,7 @@ function actionAxeRefId(v) {
 
 function getActionAxe(action) {
   if (!action) return '';
-  const keys = [ACTION_COL, 'id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'];
+  const keys = [ACTION_COL, 'id_action_axe', 'id_action_referentiel', 'action_axe', 'action_schema', 'Action_schema', 'Action_sch_ma', 'Action_schéma', 'Action (schéma)'];
   for (const k of keys) {
     if (Object.prototype.hasOwnProperty.call(action, k) && action[k] !== undefined && action[k] !== null && action[k] !== '') return action[k];
   }
@@ -1311,7 +1311,7 @@ grist.onRecords(async (records) => {
     console.info('[widget-cartes] Options Degres', DEGRE_OPTIONS);
 
     ALL = records.map(r => ({ id: r.id, ...r }));
-    ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'], ACTION_COL);
+    ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_schema', 'Action_schema', 'Action_sch_ma', 'Action_schéma', 'Action (schéma)'], ACTION_COL);
     DEGREE_ACTION_COL = detectExistingColumn(ALL, ['Degre', 'Degres', 'id_degre', 'id_degres', 'Degré', 'Degrés', 'degre', 'degres'], DEGREE_ACTION_COL);
     // Colonne réelle dans Actions_formation : Contacts.
     // Ne pas détecter id_contacts : cette colonne n'existe pas et provoque un KeyError à l'enregistrement.
@@ -1671,7 +1671,7 @@ function buildModalForm(a) {
         </select>
       </div>
       <div class="mfield">
-        <label>Action (référentiel)</label>
+        <label>Action (schéma directeur)</label>
         <select id="m-action-axe">
           <option value="">—</option>
           ${ACTION_AXE_OPTIONS.map(o=>`<option value="${esc(o.value)}"${selectedAction(actionVal, o)}>${esc(o.label)}</option>`).join('')}
