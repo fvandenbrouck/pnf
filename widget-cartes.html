@@ -435,6 +435,7 @@ html, body {
                font-family: 'DM Mono', monospace; font-size: 8.5px; }
 .tag-axe     { background: rgba(27,58,107,.08); color: var(--navy); }
 .tag-modal   { background: rgba(245,160,168,.2); color: #8a2030; }
+.tag-statut  { background: rgba(27,58,107,.08); color: var(--navy); border: 1px solid rgba(27,58,107,.12); }
 .tag-public  { background: rgba(168,221,216,.25); color: #205450; }
 
 /* ── MODALE ───────────────────────────────────────── */
@@ -686,6 +687,7 @@ html, body {
     <div id="f-degre-menu" class="multi-menu hidden"></div>
   </div>
   <div class="tb-sel"><select id="f-modal"  onchange="applyFilters()"><option value="">Toutes les modalités</option></select></div>
+  <div class="tb-sel"><select id="f-statut" onchange="applyFilters()"><option value="">Tous les statuts</option></select></div>
   <button class="btn-reset" onclick="resetFilters()" title="Réinitialiser">✕</button>
   <button class="btn-export" onclick="downloadFilteredCSV()">Télécharger CSV</button>
   <button class="btn-new" onclick="openCreateModal()">+ Inscrire une action</button>
@@ -724,13 +726,15 @@ html, body {
 <script>
 // ── Données ──────────────────────────────────────────────────────────────
 let ALL = [], FILTERED = [];
-let VOLET_MAP = {}, AXE_MAP = {}, ACTION_AXE_MAP = {}, STRUCT_MAP = {}, MODAL_MAP = {}, CONT_MAP = {}, PUBLIC_MAP = {}, ANNEE_MAP = {};
+let VOLET_MAP = {}, AXE_MAP = {}, ACTION_AXE_MAP = {}, STRUCT_MAP = {}, MODAL_MAP = {}, CONT_MAP = {}, PUBLIC_MAP = {}, ANNEE_MAP = {}, STATUT_MAP = {};
 let ANNEE_ID_TO_LABEL = {}, ANNEE_LABEL_TO_ID = {}, ANNEE_OPTIONS = [];
+let STATUT_ID_TO_LABEL = {}, STATUT_LABEL_TO_ID = {}, STATUT_OPTIONS = [];
 let DEGRE_ID_TO_LABEL = {}, DEGRE_LABEL_TO_ID = {}, DEGRE_OPTIONS = [];
 let CONTACT_LABEL_TO_ID = {}, CONTACT_OPTIONS = [];
 let CONTACT_COLS = { nomPrenom: 'Nom Prénom', nom: 'NOM', prenom: 'PRENOM', email: 'Email', structure: 'Structure' };
 let DEGREE_ACTION_COL = 'Degre';
 let CONTACT_ACTION_COL = 'Contacts';
+let STATUT_ACTION_COL = 'Statut';
 let ACTION_AXE_OPTIONS = [];
 let ACTION_COL = 'id_action_referentiel';
 let selectedId = null;
@@ -805,6 +809,32 @@ function anneeLabelFromValue(v) {
     return ANNEE_ID_TO_LABEL[x] || ANNEE_ID_TO_LABEL[key] || ANNEE_MAP[x] || ANNEE_MAP[key] || key;
   }).filter(Boolean);
   return labels.join(', ');
+}
+
+function statutLabelFromRow(r) {
+  return firstText(r, ['statut', 'Statut', 'STATUT', 'libelle', 'Libelle', 'Libellé', 'label', 'Label', 'nom', 'Nom']);
+}
+
+function statutLabelFromValue(v) {
+  const vals = asList(v);
+  if (!vals.length) return '';
+  const labels = vals.map(x => {
+    const key = String(x || '').trim();
+    return STATUT_ID_TO_LABEL[x] || STATUT_ID_TO_LABEL[key] || STATUT_MAP[x] || STATUT_MAP[key] || key;
+  }).filter(Boolean);
+  return labels.join(', ');
+}
+
+function getStatut(action) {
+  if (!action) return '';
+  const keys = ['Statut', 'statut', 'STATUT', 'id_statut', 'id_Statut', 'Status', 'status'];
+  for (const k of keys) {
+    if (Object.prototype.hasOwnProperty.call(action, k) &&
+        action[k] !== undefined && action[k] !== null && action[k] !== '') {
+      return action[k];
+    }
+  }
+  return '';
 }
 
 function getAnnee(action) {
@@ -1237,7 +1267,7 @@ grist.onRecords(async (records) => {
       await new Promise(r => setTimeout(r, 100));
       attempts++;
     }
-    const [volets, axes, actionsAxes, structs, modals, contacts, publics, degres, annees] = await Promise.all([
+    const [volets, axes, actionsAxes, structs, modals, contacts, publics, degres, annees, statuts] = await Promise.all([
       grist.docApi.fetchTable('Volets'),
       grist.docApi.fetchTable('Axes'),
       grist.docApi.fetchTable('Actions_axes').catch(() => ({id:[], 'N° action':[], libelle:[], Libelle:[], 'Libellé':[]})),
@@ -1247,6 +1277,7 @@ grist.onRecords(async (records) => {
       grist.docApi.fetchTable('Publics').catch(() => ({id:[], libelle:[], Libelle:[], 'Libellé':[]})),
       grist.docApi.fetchTable('Degres').catch(() => ({id:[], nom_deg:[]})),
       grist.docApi.fetchTable('Annees').catch(() => ({id:[], Annee_scolaire:[], libelle:[], Libelle:[], 'Libellé':[]})),
+      grist.docApi.fetchTable('Statut').catch(() => ({id:[], statut:[]})),
     ]);
 
     const toRows = t => (t.id||[]).map((id,i) => {
@@ -1272,6 +1303,7 @@ grist.onRecords(async (records) => {
     const pRows = toRows(publics);
     const dRows = toRows(degres);
     const eRows = toRows(annees);
+    const stRows = toRows(statuts);
 
     VOLET_MAP  = Object.fromEntries(vRows.map(r => [r.id, r.libelle || r.Libelle || r['Libellé'] || '']));
     AXE_MAP    = Object.fromEntries(aRows.map(r => [r.id, r.libelle || r.Libelle || r['Libellé'] || '']));
@@ -1330,6 +1362,33 @@ grist.onRecords(async (records) => {
     window.VOLET_VALUES  = [...new Set(vRows.map(r => r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
     window.AXE_VALUES    = [...new Set(aRows.map(r => r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
     window.ANNEE_VALUES  = [...new Set(ANNEE_OPTIONS.map(o => o.label).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr', {numeric:true}));
+    // Statut : table technique attendue = Statut ; colonne de libellé attendue = statut.
+    STATUT_ID_TO_LABEL = Object.fromEntries(stRows
+      .map(r => [String(r.id), statutLabelFromRow(r)])
+      .filter(([,v]) => v));
+    STATUT_LABEL_TO_ID = Object.fromEntries(stRows
+      .map(r => [statutLabelFromRow(r), String(r.id)])
+      .filter(([k]) => k));
+    STATUT_MAP = Object.assign({}, STATUT_ID_TO_LABEL);
+    stRows.forEach(r => {
+      const label = statutLabelFromRow(r);
+      if (label) STATUT_MAP[label] = label;
+    });
+    STATUT_OPTIONS = stRows
+      .map(r => ({ id: String(r.id || '').trim(), label: statutLabelFromRow(r) }))
+      .filter(o => o.id && o.label)
+      .sort((a,b)=>a.label.localeCompare(b.label,'fr', {numeric:true}));
+    if (!STATUT_OPTIONS.length) {
+      STATUT_OPTIONS = [
+        {id: '1', label: 'validé'},
+        {id: '2', label: 'reporté'},
+        {id: '3', label: 'annulé'},
+      ];
+      STATUT_ID_TO_LABEL = {'1': 'validé', '2': 'reporté', '3': 'annulé'};
+      STATUT_LABEL_TO_ID = {'validé': '1', 'reporté': '2', 'annulé': '3'};
+      STATUT_MAP = Object.assign({}, STATUT_ID_TO_LABEL, {'validé':'validé','reporté':'reporté','annulé':'annulé'});
+    }
+    window.STATUT_VALUES = STATUT_OPTIONS.map(o => o.label);
     window.STRUCT_VALUES = [...new Set(sRows.map(r => r.code || r.Code || r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
     window.MODAL_VALUES  = [...new Set(mRows.map(r => r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
     window.CONTACT_VALUES = CONTACT_OPTIONS.map(o => o.label);
@@ -1369,6 +1428,7 @@ grist.onRecords(async (records) => {
     // Colonne réelle dans Actions_formation : Contacts.
     // Ne pas détecter id_contacts : cette colonne n'existe pas et provoque un KeyError à l'enregistrement.
     CONTACT_ACTION_COL = 'Contacts';
+    STATUT_ACTION_COL = detectExistingColumn(ALL, ['Statut', 'statut', 'STATUT', 'id_statut', 'id_Statut', 'Status', 'status'], STATUT_ACTION_COL);
 
     buildFilters();
     applyFilters();
@@ -1405,6 +1465,7 @@ function buildFilters() {
   fillFromData('f-public', r => publicValues(r), true);
   fillDegreFilter();
   fillFromData('f-modal',  r => r.id_modalite);
+  fillStatutFilter();
 }
 
 function fillAnneeFilter() {
@@ -1519,6 +1580,7 @@ function applyFilters() {
   const pub    = document.getElementById('f-public').value;
   const degres = getSelectedDegreFilters();
   const modal  = document.getElementById('f-modal').value;
+  const statut = document.getElementById('f-statut') ? document.getElementById('f-statut').value : '';
   const search = document.getElementById('f-search').value.toLowerCase();
 
   // Les champs arrivent en texte résolu → comparaison directe en chaîne
@@ -1542,12 +1604,14 @@ function applyFilters() {
     if (!matchText(a.id_axe,      axe))    return false;
     if (!matchText(a.id_volet,    volet))   return false;
     if (!matchText(a.id_modalite, modal))   return false;
+    if (!matchText(statutLabelFromValue(getStatut(a)), statut)) return false;
     if (!matchList(a.id_structure, struct)) return false;
     if (!matchList(publicValues(a), pub))   return false;
     if (!matchAny(degreLabelFromValue(getDegre(a)).split(',').map(s => s.trim()).filter(Boolean), degres)) return false;
     if (search && !(a.titre||'').toLowerCase().includes(search) &&
                   !(a.objectif||'').toLowerCase().includes(search) &&
                   !anneeLabelFromValue(getAnnee(a)).toLowerCase().includes(search) &&
+                  !statutLabelFromValue(getStatut(a)).toLowerCase().includes(search) &&
                   !publicValues(a).join(' ').toLowerCase().includes(search) &&
                   !contactValues(a).join(' ').toLowerCase().includes(search) &&
                   !actionAxeDisplay(getActionAxe(a)).toLowerCase().includes(search)) return false;
@@ -1560,7 +1624,7 @@ function applyFilters() {
 }
 
 function resetFilters() {
-  ['f-annee','f-axe','f-volet','f-struct','f-public','f-modal'].forEach(id =>
+  ['f-annee','f-axe','f-volet','f-struct','f-public','f-modal','f-statut'].forEach(id =>
     document.getElementById(id).value = '');
   document.querySelectorAll('#f-degre-menu input:checked').forEach(cb => { cb.checked = false; });
   updateDegreFilterButton();
@@ -1805,6 +1869,21 @@ function buildModalForm(a) {
         <input type="text" id="m-gaia" value="${esc(a.code_gaia||'')}">
       </div>
     </div>
+    <div class="mfield full">
+      <label>Statut</label>
+      <div class="mchips" id="m-statut">
+        ${(STATUT_OPTIONS && STATUT_OPTIONS.length ? STATUT_OPTIONS : [
+          {id: '1', label: 'validé'},
+          {id: '2', label: 'reporté'},
+          {id: '3', label: 'annulé'}
+        ]).map(o=>{
+          const id = String(o.id || '').trim();
+          const label = String(o.label || '').trim();
+          const current = statutLabelFromValue(getStatut(a));
+          return `<label class="mchip"><input type="checkbox" value="${esc(id)}" data-label="${esc(label)}"${current === label ? ' checked' : ''} onclick="toggleStatutChoice(this)"><span>${esc(label)}</span></label>`;
+        }).join('')}
+      </div>
+    </div>
     <div class="modal-row">
       <div class="mfield">
         <label>JS prévision</label>
@@ -1853,6 +1932,18 @@ function buildModalForm(a) {
     </div>`;
 }
 
+function toggleStatutChoice(input) {
+  if (!input) return;
+  const container = document.getElementById('m-statut');
+  if (!container) return;
+  if (input.checked) {
+    container.querySelectorAll('input[type="checkbox"]').forEach(el => {
+      if (el !== input) el.checked = false;
+    });
+  }
+  markDirty('statut');
+}
+
 function checkedValues(selector) {
   return [...document.querySelectorAll(selector + ' input:checked')]
     .map(c => String(c.value || '').trim())
@@ -1892,6 +1983,7 @@ function attachDirtyTracking() {
   });
   document.querySelectorAll('#m-publics input').forEach(el => el.addEventListener('change', () => markDirty('publics')));
   document.querySelectorAll('#m-degres input').forEach(el => el.addEventListener('change', () => markDirty('degres')));
+  document.querySelectorAll('#m-statut input').forEach(el => el.addEventListener('change', () => markDirty('statut')));
 }
 
 function readFormSnapshot() {
@@ -1916,6 +2008,7 @@ function readFormSnapshot() {
     new_contact_structure: String(byId('m-new-contact-structure')?.value || '').trim(),
     publics: checkedValues('#m-publics'),
     degres: checkedValues('#m-degres'),
+    statut: checkedValues('#m-statut'),
   };
 }
 
@@ -2001,6 +2094,10 @@ async function saveRecord() {
     .filter(v => /^\d+$/.test(v));
   const publicLabels = [...document.querySelectorAll('#m-publics input:checked')].map(c=>c.value);
   const degreIds = [...document.querySelectorAll('#m-degres input:checked')]
+    .map(c=>String(c.value || '').trim())
+    .filter(Boolean)
+    .filter(v => /^\d+$/.test(v));
+  const statutIds = [...document.querySelectorAll('#m-statut input:checked')]
     .map(c=>String(c.value || '').trim())
     .filter(Boolean)
     .filter(v => /^\d+$/.test(v));
@@ -2092,6 +2189,9 @@ async function saveRecord() {
   if (formFieldChanged('degres', degreIds)) {
     fields[DEGREE_ACTION_COL] = ['L', ...degreIds.map(Number)];
   }
+  if (formFieldChanged('statut', statutIds)) {
+    fields[STATUT_ACTION_COL] = statutIds.length ? Number(statutIds[0]) : null;
+  }
 
   if (formFieldChanged('action', actionAxeRaw)) {
     fields[ACTION_COL] = actionAxeRaw ? Number(actionAxeRaw) : null;
@@ -2181,6 +2281,7 @@ function downloadFilteredCSV() {
     'action_referentiel',
     'structure',
     'modalite',
+    'statut',
     'publics',
     'contacts',
     'degres',
@@ -2199,6 +2300,7 @@ function downloadFilteredCSV() {
     action_referentiel: actionAxeDisplay(getActionAxe(a)),
     structure: csvJoinList(asList(a.id_structure).filter(Boolean)),
     modalite: a.id_modalite || '',
+    statut: statutLabelFromValue(getStatut(a)),
     publics: csvJoinList(publicValues(a)),
     contacts: csvJoinList(contactValues(a)),
     degres: degreLabelFromValue(getDegre(a)),
@@ -2251,6 +2353,7 @@ function render() {
     const periode  = a.periode || '';
     const gaia     = a.code_gaia || '';
     const degre    = degreLabelFromValue(getDegre(a));
+    const statut   = statutLabelFromValue(getStatut(a));
     const delay    = Math.min(i * 18, 400);
     const isSel    = a.id === selectedId;
 
@@ -2335,6 +2438,12 @@ function render() {
             <div class="meta-value tags">
               ${contacts.map(c=>`<span class="tag tag-contact">${esc(c)}</span>`).join('')}
             </div>
+          </div>` : ''}
+
+          ${statut ? `
+          <div class="meta-row">
+            <span class="meta-label">Statut</span>
+            <div class="meta-value"><span class="tag tag-statut">${esc(statut)}</span></div>
           </div>` : ''}
         </div>
 
