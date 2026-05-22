@@ -216,7 +216,7 @@ html, body {
 }
 .btn-delete-card {
   font-family: 'DM Sans', sans-serif;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   color: #fff;
   background: #b3261e;
@@ -714,6 +714,7 @@ html, body {
     <div class="modal-foot">
       <span class="msg-save" id="msg-save"></span>
       <span class="spacer"></span>
+      <button class="btn-delete-card" id="btn-delete-action" onclick="deleteCurrentAction(event)">Supprimer</button>
       <button class="btn-cancel" onclick="closeModal()">Annuler</button>
       <button class="btn-save" id="btn-save" onclick="saveRecord()">Enregistrer</button>
     </div>
@@ -1576,6 +1577,15 @@ function selectCard(id) {
   if (action) openModal(action);
 }
 
+async function deleteCurrentAction(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  if (!CURRENT_ACTION || CURRENT_MODE === 'create' || !CURRENT_ACTION.id) return;
+  await deleteAction(CURRENT_ACTION.id, event);
+}
+
 async function deleteAction(id, event) {
   if (event) {
     event.preventDefault();
@@ -1649,6 +1659,8 @@ function openModal(action, mode='edit') {
   attachDirtyTracking();
 
   document.getElementById('btn-save').textContent = isNew ? 'Inscrire' : 'Enregistrer';
+  const deleteBtn = document.getElementById('btn-delete-action');
+  if (deleteBtn) deleteBtn.style.display = isNew ? 'none' : '';
 
   // Afficher
   document.getElementById('overlay').classList.remove('hidden');
@@ -1663,6 +1675,8 @@ function closeModal(e) {
   INITIAL_FORM = null;
   DIRTY_FORM = new Set();
   document.getElementById('btn-save').textContent = 'Enregistrer';
+  const deleteBtn = document.getElementById('btn-delete-action');
+  if (deleteBtn) deleteBtn.style.display = '';
 }
 
 // Construire les champs du formulaire modal
@@ -2324,9 +2338,6 @@ function render() {
           </div>` : ''}
         </div>
 
-        <div class="card-actions">
-          <button class="btn-delete-card" type="button" onclick="deleteAction(${a.id}, event)">Supprimer</button>
-        </div>
 
       </div>
     </div>`;
