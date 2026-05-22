@@ -208,6 +208,38 @@ html, body {
   box-shadow: 0 4px 12px rgba(27,58,107,.12);
 }
 
+.card-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+  margin-top: 2px;
+}
+.btn-delete-card {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #fff;
+  background: #b3261e;
+  border: 1px solid #b3261e;
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: all .12s;
+}
+.btn-delete-card:hover {
+  background: #8f1d17;
+  border-color: #8f1d17;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(179,38,30,.18);
+}
+.btn-delete-card:disabled {
+  background: var(--ink3);
+  border-color: var(--ink3);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 .count {
   font-family: 'DM Mono', monospace;
   font-size: 10px;
@@ -1544,6 +1576,44 @@ function selectCard(id) {
   if (action) openModal(action);
 }
 
+async function deleteAction(id, event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const action = ALL.find(a => Number(a.id) === Number(id));
+  if (!action) return;
+
+  const titre = String(action.titre || 'Sans titre').trim();
+  const ok = window.confirm(
+    `Supprimer définitivement cette action de formation ?
+
+${titre}
+
+Cette opération est irréversible. Cliquez sur OK pour confirmer ou Annuler pour conserver l’action.`
+  );
+  if (!ok) return;
+
+  const btn = event && event.currentTarget;
+  if (btn) btn.disabled = true;
+
+  try {
+    await grist.docApi.applyUserActions([
+      ['RemoveRecord', 'Actions_formation', Number(id)]
+    ]);
+
+    ALL = ALL.filter(a => Number(a.id) !== Number(id));
+    FILTERED = FILTERED.filter(a => Number(a.id) !== Number(id));
+    if (selectedId === id || Number(selectedId) === Number(id)) selectedId = null;
+    if (CURRENT_ACTION && Number(CURRENT_ACTION.id) === Number(id)) closeModal();
+    applyFilters();
+  } catch(e) {
+    console.error(e);
+    alert('Erreur lors de la suppression : ' + (e && e.message ? e.message : e));
+    if (btn) btn.disabled = false;
+  }
+}
+
 // ── MODALE ────────────────────────────────────────────────────────────────
 let CURRENT_ACTION = null;
 let CURRENT_MODE = 'edit';
@@ -2252,6 +2322,10 @@ function render() {
               ${contacts.map(c=>`<span class="tag tag-contact">${esc(c)}</span>`).join('')}
             </div>
           </div>` : ''}
+        </div>
+
+        <div class="card-actions">
+          <button class="btn-delete-card" type="button" onclick="deleteAction(${a.id}, event)">Supprimer</button>
         </div>
 
       </div>
