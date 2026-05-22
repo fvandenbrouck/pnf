@@ -724,6 +724,8 @@ html, body {
 </div>
 
 <script>
+console.info('[widget-cartes] v57 statut safe chargé');
+
 // ── Données ──────────────────────────────────────────────────────────────
 let ALL = [], FILTERED = [];
 let VOLET_MAP = {}, AXE_MAP = {}, ACTION_AXE_MAP = {}, STRUCT_MAP = {}, MODAL_MAP = {}, CONT_MAP = {}, PUBLIC_MAP = {}, ANNEE_MAP = {}, STATUT_MAP = {};
@@ -1465,7 +1467,30 @@ function buildFilters() {
   fillFromData('f-public', r => publicValues(r), true);
   fillDegreFilter();
   fillFromData('f-modal',  r => r.id_modalite);
-  fillStatutFilter();
+  safeFillStatutFilter();
+}
+
+
+function safeFillStatutFilter() {
+  // Protection contre les versions mises en cache où fillStatutFilter n'existe pas encore.
+  // Le widget ne doit jamais cesser d'afficher les cartes parce que le filtre Statut échoue.
+  if (typeof fillStatutFilter === 'function') {
+    fillStatutFilter();
+    return;
+  }
+  const sel = document.getElementById('f-statut');
+  if (!sel) return;
+  const cur = sel.value;
+  while (sel.options.length > 1) sel.remove(1);
+  const values = ['validé', 'reporté', 'annulé'];
+  values.forEach(v => {
+    const option = document.createElement('option');
+    option.value = v;
+    option.textContent = v;
+    sel.appendChild(option);
+  });
+  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+  else sel.value = '';
 }
 
 function fillAnneeFilter() {
