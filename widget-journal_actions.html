@@ -209,7 +209,7 @@ function labelFor(v,map){ const id=refId(v)||String(v||'').trim(); return map[id
 function labelsFor(v,map,table){ return asList(v).map(x=>labelFor(x,map,table)).filter(Boolean).filter(x=>x!=='L'&&x!=='R'); }
 function simpleLabel(r){ return firstText(r,['libelle','Libelle','Libellé','label','Label','nom','Nom','code','Code']); }
 function contactLabel(r){ const np=firstText(r,['Nom Prénom','Nom Prenom','nom_prenom','NOM_PRENOM','Nom_prenom']); const nom=firstText(r,['NOM','Nom','nom']); const prenom=firstText(r,['PRENOM','Prénom','Prenom','prenom']); const email=firstText(r,['Email','EMAIL','email','mail']); return np || [nom,prenom].filter(Boolean).join(' ').trim() || [prenom,nom].filter(Boolean).join(' ').trim() || email; }
-function lieuLabel(r){ return firstText(r,['lieu','Lieu','Lieux','nom','Nom','libelle','Libelle','Libellé']); }
+function lieuLabel(r){ return firstText(r,['Site','site','SITE','lieu','Lieu','Lieux','nom','Nom','libelle','Libelle','Libellé']); }
 function statusLabel(r){ return firstText(r,['statut_suivi','Statut_suivi','statut','Statut','label','Label']); }
 function getTitre(a){ return firstText(a,['Titre','titre','title']) || 'Sans titre'; }
 function getObjectif(a){ return firstText(a,['Objectif','objectif']); }
