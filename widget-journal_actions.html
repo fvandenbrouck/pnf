@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Journal de bord PNF</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --turquoise:#A8DDD8;
+  --peach:#F9C59A;
+  --strawberry:#F5A0A8;
+  --lilas:#E8E8F5;
+  --navy:#1B3A6B;
+  --navy-l:#e8edf5;
+  --bg:#F7F5F2;
+  --white:#fff;
+  --ink:#1a1208;
+  --ink2:#4a3f2f;
+  --ink3:#8a8070;
+  --border:#E0D8CC;
+  --green-bg:rgba(168,221,216,.35);
+  --green:#1a6b65;
+  --orange-bg:rgba(249,197,154,.45);
+  --orange:#8a4a10;
+  --red-bg:rgba(245,160,168,.32);
+  --red:#8a2030;
+  --purple-bg:rgba(200,180,224,.45);
+  --purple:#4e3370;
+  --grey-bg:rgba(180,180,180,.35);
+  --grey:#555;
+}
+html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--ink); height:100%; overflow:hidden; }
+.toolbar { background:var(--white); border-bottom:1px solid var(--border); padding:8px 12px; display:flex; flex-wrap:wrap; gap:7px; align-items:center; position:sticky; top:0; z-index:10; }
+.tb-title { display:flex; flex-direction:column; gap:1px; min-width:150px; margin-right:4px; }
+.tb-title strong { font-family:'Fraunces',serif; font-size:14px; font-weight:500; line-height:1.1; }
+.tb-title span { font-family:'DM Mono',monospace; font-size:8.5px; color:var(--ink3); text-transform:uppercase; letter-spacing:.06em; }
+.tb-search { position:relative; flex:2; min-width:190px; }
+.tb-search svg { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--ink3); pointer-events:none; }
+.tb-search input { width:100%; padding:7px 10px 7px 32px; font-size:11px; background:var(--bg); border:1px solid var(--border); border-radius:7px; outline:none; }
+.tb-search input:focus { border-color:var(--navy); background:#fff; }
+.tb-sel { position:relative; flex:1; min-width:135px; }
+.tb-sel select { width:100%; font-family:'DM Sans',sans-serif; font-size:11px; color:var(--ink); background:var(--bg); border:1px solid var(--border); border-radius:7px; padding:7px 24px 7px 9px; outline:none; appearance:none; -webkit-appearance:none; cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%238a8070' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 7px center; }
+.tb-sel select:focus { border-color:var(--navy); background:#fff; }
+.btn-reset, .btn-download { font-family:'DM Sans',sans-serif; font-size:11px; border:1px solid var(--border); padding:7px 10px; border-radius:7px; cursor:pointer; white-space:nowrap; }
+.btn-reset { background:transparent; color:var(--ink3); }
+.btn-reset:hover { border-color:var(--strawberry); color:var(--strawberry); }
+.btn-download { background:var(--navy); color:#fff; border-color:var(--navy); font-weight:600; }
+.btn-download:hover { background:#0d2a52; }
+.count { font-family:'DM Mono',monospace; font-size:10px; color:var(--ink3); background:var(--lilas); padding:5px 10px; border-radius:999px; white-space:nowrap; }
+.grid-wrap { height:calc(100vh - 58px); overflow-y:auto; padding:14px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(390px,1fr)); gap:12px; }
+.card { background:var(--white); border:1.5px solid var(--border); border-radius:12px; overflow:hidden; cursor:pointer; transition:.15s; animation:fadeUp .25s ease both; }
+@keyframes fadeUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+.card:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(27,58,107,.12); border-color:var(--navy); }
+.card.selected { border-color:var(--navy); box-shadow:0 0 0 3px rgba(27,58,107,.15); }
+.card-band { height:5px; background:var(--navy); }
+.card-body { padding:14px 16px; display:flex; flex-direction:column; gap:9px; }
+.card-top { display:flex; justify-content:space-between; align-items:center; gap:6px; }
+.card-top-left, .card-top-right { display:flex; flex-wrap:wrap; align-items:center; gap:4px; }
+.card-title { font-family:'Fraunces',serif; font-size:15px; font-weight:600; line-height:1.35; }
+.card-objectif { font-size:11.5px; color:var(--ink2); line-height:1.55; }
+.card-sep { height:1px; background:var(--border); margin-top:1px; }
+.meta-row { display:flex; gap:8px; align-items:flex-start; font-size:11px; }
+.meta-label { font-family:'DM Mono',monospace; color:var(--ink3); text-transform:uppercase; letter-spacing:.06em; min-width:84px; font-size:9px; padding-top:3px; }
+.tags { display:flex; flex-wrap:wrap; gap:4px; }
+.tag { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:500; padding:3px 8px; border-radius:4px; line-height:1.35; }
+.tag-year { background:var(--green-bg); color:var(--green); font-family:'DM Mono',monospace; font-size:9px; }
+.tag-struct { background:rgba(168,221,216,.28); color:#1a6b65; }
+.tag-modal { background:rgba(245,160,168,.2); color:#8a2030; }
+.tag-resp { background:var(--lilas); color:var(--navy); font-family:'DM Mono',monospace; }
+.tag-session { background:rgba(27,58,107,.06); color:var(--ink2); }
+.tag-date { background:rgba(249,197,154,.35); color:#8a4a10; }
+.status { font-family:'DM Mono',monospace; font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+.status-green { background:var(--green-bg); color:var(--green); }
+.status-orange { background:var(--orange-bg); color:var(--orange); }
+.status-red { background:var(--red-bg); color:var(--red); }
+.status-purple { background:var(--purple-bg); color:var(--purple); }
+.status-grey { background:var(--grey-bg); color:var(--grey); }
+.status-neutral { background:var(--navy-l); color:var(--navy); }
+.empty { grid-column:1/-1; text-align:center; padding:80px 20px; color:var(--ink3); }
+.empty p { font-family:'Fraunces',serif; font-size:22px; margin-bottom:8px; }
+.empty span { font-family:'DM Mono',monospace; font-size:11px; }
+.overlay { position:fixed; inset:0; background:rgba(27,58,107,.45); backdrop-filter:blur(3px); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px; }
+.overlay.hidden { display:none; }
+.modal { background:var(--white); border-radius:15px; width:100%; max-width:920px; max-height:96vh; display:flex; flex-direction:column; box-shadow:0 24px 64px rgba(27,58,107,.25); }
+.modal-head { padding:20px 24px 16px; border-bottom:1px solid var(--border); display:flex; gap:14px; align-items:flex-start; }
+.modal-band { width:5px; min-height:52px; border-radius:3px; background:var(--navy); flex-shrink:0; }
+.modal-head-text { flex:1; }
+.modal-head h2 { font-family:'Fraunces',serif; font-size:21px; line-height:1.3; font-weight:600; }
+.modal-meta { font-family:'DM Mono',monospace; font-size:10px; color:var(--ink3); margin-top:5px; letter-spacing:.04em; }
+.btn-close { margin-left:auto; border:none; background:transparent; font-size:24px; color:var(--ink3); cursor:pointer; padding:2px 6px; }
+.btn-close:hover { color:var(--ink); background:var(--bg); border-radius:6px; }
+.modal-body { overflow-y:auto; padding:18px 24px; display:grid; gap:16px; }
+.section-title { font-family:'DM Mono',monospace; color:var(--ink3); text-transform:uppercase; letter-spacing:.08em; font-size:10px; font-weight:600; margin-bottom:7px; }
+.box { border:1.5px solid var(--border); border-radius:10px; background:var(--bg); padding:12px; }
+.description { font-size:12px; color:var(--ink2); line-height:1.6; white-space:pre-wrap; }
+.form-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.form-grid.three { grid-template-columns:1fr 1fr 1fr; }
+.mfield { display:flex; flex-direction:column; gap:6px; }
+.mfield.full { grid-column:1/-1; }
+.mfield label { font-family:'DM Mono',monospace; color:var(--ink3); text-transform:uppercase; letter-spacing:.08em; font-size:9px; font-weight:600; }
+.mfield input, .mfield select, .mfield textarea { font-family:'DM Sans',sans-serif; font-size:12px; padding:8px 10px; border:1.5px solid var(--border); border-radius:7px; background:var(--white); outline:none; color:var(--ink); width:100%; }
+.mfield textarea { min-height:88px; resize:vertical; line-height:1.55; }
+.mfield input:focus, .mfield select:focus, .mfield textarea:focus { border-color:var(--navy); }
+.chips { display:flex; flex-wrap:wrap; gap:5px; }
+.chip { display:inline-flex; align-items:center; gap:5px; padding:5px 9px; border-radius:6px; border:1.5px solid transparent; font-size:11px; cursor:pointer; background:#fff; color:var(--ink2); }
+.chip:hover { border-color:var(--navy); background:var(--navy-l); }
+.chip.selected { border-color:var(--navy); background:var(--navy-l); color:var(--navy); font-weight:600; }
+.chip.selected::after { content:'×'; font-weight:700; }
+.help { font-size:11px; color:var(--ink3); line-height:1.4; margin-top:7px; }
+.btn-row { display:flex; gap:10px; align-items:center; justify-content:flex-end; margin-top:10px; }
+.btn { font-family:'DM Sans',sans-serif; font-size:12px; font-weight:600; padding:9px 14px; border-radius:7px; cursor:pointer; border:1.5px solid var(--border); background:var(--white); color:var(--ink2); }
+.btn-primary { background:var(--navy); color:#fff; border-color:var(--navy); }
+.btn-primary:hover { background:#0d2a52; }
+.btn:hover { border-color:var(--navy); }
+.msg { font-family:'DM Mono',monospace; font-size:11px; color:var(--ink3); }
+.msg.ok { color:#2a7a4a; } .msg.err { color:var(--strawberry); }
+.history { display:flex; flex-direction:column; gap:10px; }
+.history-item { background:#fff; border:1.5px solid var(--border); border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:8px; }
+.history-head { display:flex; flex-wrap:wrap; gap:5px; align-items:center; justify-content:space-between; }
+.history-head-left { display:flex; flex-wrap:wrap; gap:5px; align-items:center; }
+.history-date { font-family:'DM Mono',monospace; font-size:10px; color:var(--ink3); }
+.history-text { font-size:12px; color:var(--ink2); line-height:1.55; white-space:pre-wrap; }
+.history-next { border-top:1px solid var(--border); padding-top:8px; }
+#loader { position:fixed; inset:0; background:rgba(247,245,242,.92); display:flex; align-items:center; justify-content:center; flex-direction:column; gap:14px; z-index:500; }
+#loader.hidden { display:none; }
+.spinner { width:28px; height:28px; border:3px solid var(--border); border-top-color:var(--navy); border-radius:50%; animation:spin .7s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+@media (max-width:820px) { .form-grid, .form-grid.three { grid-template-columns:1fr; } .grid { grid-template-columns:1fr; } .modal { max-height:98vh; } }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <div class="tb-title"><strong>Journal de bord</strong><span>Suivi opérationnel</span></div>
+  <div class="tb-search">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+    <input type="text" id="f-search" placeholder="Rechercher action, responsable, compte rendu…" oninput="applyFilters()">
+  </div>
+  <div class="tb-sel"><select id="f-annee" onchange="applyFilters()"><option value="">Toutes les années</option></select></div>
+  <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Toutes les structures</option></select></div>
+  <div class="tb-sel"><select id="f-resp" onchange="applyFilters()"><option value="">Tous les responsables</option></select></div>
+  <div class="tb-sel"><select id="f-status" onchange="applyFilters()"><option value="">Tous les statuts</option></select></div>
+  <button class="btn-reset" onclick="resetFilters()">✕</button>
+  <button class="btn-download" onclick="downloadCsv()">Télécharger CSV</button>
+  <span class="count" id="count">–</span>
+</div>
+<div class="grid-wrap"><div class="grid" id="grid"></div></div>
+<div id="loader"><div class="spinner"></div><p>Chargement du journal…</p></div>
+
+<div class="overlay hidden" id="overlay" onclick="closeModal(event)">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-band"></div>
+      <div class="modal-head-text">
+        <h2 id="modal-title">–</h2>
+        <div class="modal-meta" id="modal-meta"></div>
+      </div>
+      <button class="btn-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+console.info('[widget-journal-actions] v1 chargé');
+let ALL = [], FILTERED = [], CURRENT_ACTION = null, selectedId = null;
+let CONTACT_ROWS = [], LIEU_ROWS = [], STATUS_ROWS = [], JOURNAL_ROWS = [], SESSION_ROWS = [];
+let CONTACT_MAP = {}, CONTACT_ID_BY_LABEL = {}, LIEU_MAP = {}, STATUS_MAP = {}, STATUS_ID_BY_LABEL = {};
+let STRUCT_MAP = {}, MODAL_MAP = {}, PUBLIC_MAP = {}, ANNEE_VALUES = [];
+let SELECTED_LIEUX = new Set();
+const ACTION_TABLE = 'Actions_formation';
+const JOURNAL_TABLE = 'Journal_Actions';
+const SESSION_TABLE = 'Journal_sessions';
+
+function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function asList(v){ if(v===null||v===undefined||v==='') return []; if(Array.isArray(v)) return v[0]==='L'?v.slice(1):v; return [v]; }
+function toRows(t){ return (t&&t.id||[]).map((id,i)=>{ const r={id}; Object.keys(t||{}).forEach(k=>{ if(k!=='id') r[k]=t[k][i]; }); return r; }); }
+function firstText(row, keys){ for(const k of keys){ const v=row&&row[k]; if(v!==undefined&&v!==null&&String(v).trim()) return String(v).trim(); } return ''; }
+function norm(s){ return String(s||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+function formatDateValue(v){ if(!v) return ''; try{ if(typeof v==='number'){ const ms=v<1000000000000?v*1000:v; return new Intl.DateTimeFormat('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date(ms)); } const d=new Date(v); if(isNaN(d)) return String(v); return new Intl.DateTimeFormat('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'}).format(d); }catch(e){return String(v||'');} }
+function toInputDate(v){ if(!v) return ''; try{ let d; if(typeof v==='number') d=new Date(v<1000000000000?v*1000:v); else if(/^\d{4}-\d{2}-\d{2}/.test(String(v))) return String(v).slice(0,10); else d=new Date(v); if(isNaN(d)) return ''; return d.toISOString().slice(0,10); }catch(e){return '';} }
+function dateToTs(v){ return v ? Math.floor(new Date(v+'T12:00:00').getTime()/1000) : null; }
+function dateSortValue(v){ if(!v) return 0; if(typeof v==='number') return v<1000000000000?v*1000:v; const d=new Date(v); return isNaN(d)?0:d.getTime(); }
+function refId(raw, expectedTable){
+  if(raw===null||raw===undefined||raw==='') return '';
+  if(Array.isArray(raw)){
+    const arr=raw[0]==='L'?raw.slice(1):raw;
+    const tableSeen=expectedTable && arr.some(v=>String(v||'')===expectedTable);
+    const nums=arr.map(v=>typeof v==='number'?String(v):String(v||'').trim()).filter(v=>/^\d+$/.test(v));
+    if(tableSeen && nums.length) return nums[nums.length-1];
+    if(arr.length===1 && nums.length===1) return nums[0];
+    return '';
+  }
+  if(typeof raw==='object'){
+    const row=raw.rowId??raw.row_id??raw.recordId??raw.record_id??raw.ref??raw.value??raw.id;
+    if(row!==undefined && row!==null && /^\d+$/.test(String(row))) return String(row);
+    return '';
+  }
+  const s=String(raw).trim();
+  if(/^\d+$/.test(s)) return s;
+  const m=s.match(/\[(\d+)\]$/) || s.match(/(?:^|[,;:])\s*(\d+)\s*$/);
+  return m?m[1]:'';
+}
+function refIds(raw, table){ return asList(raw).map(v=>refId(v,table)||String(v||'').trim()).filter(Boolean); }
+function labelFor(v,map){ const id=refId(v)||String(v||'').trim(); return map[id] || map[String(v||'').trim()] || String(v||'').trim(); }
+function labelsFor(v,map,table){ return asList(v).map(x=>labelFor(x,map,table)).filter(Boolean).filter(x=>x!=='L'&&x!=='R'); }
+function simpleLabel(r){ return firstText(r,['libelle','Libelle','Libellé','label','Label','nom','Nom','code','Code']); }
+function contactLabel(r){ const np=firstText(r,['Nom Prénom','Nom Prenom','nom_prenom','NOM_PRENOM','Nom_prenom']); const nom=firstText(r,['NOM','Nom','nom']); const prenom=firstText(r,['PRENOM','Prénom','Prenom','prenom']); const email=firstText(r,['Email','EMAIL','email','mail']); return np || [nom,prenom].filter(Boolean).join(' ').trim() || [prenom,nom].filter(Boolean).join(' ').trim() || email; }
+function lieuLabel(r){ return firstText(r,['lieu','Lieu','Lieux','nom','Nom','libelle','Libelle','Libellé']); }
+function statusLabel(r){ return firstText(r,['statut_suivi','Statut_suivi','statut','Statut','label','Label']); }
+function getTitre(a){ return firstText(a,['Titre','titre','title']) || 'Sans titre'; }
+function getObjectif(a){ return firstText(a,['Objectif','objectif']); }
+function getAnnee(a){ return firstText(a,['Annee_scolaire','Année scolaire','annee_scolaire','Annee','Année','id_annee','id_annees']); }
+function getStructures(a){ return labelsFor(a.id_structure || a.Structure || a['Structure porteuse'] || a.Structures, STRUCT_MAP, 'Structures'); }
+function getModalite(a){ return labelFor(a.id_modalite || a.Modalite || a['Modalité'] || a.modalite, MODAL_MAP); }
+function getPublics(a){ return labelsFor(a.id_publics || a.Publics || a['Publics cibles'] || a.publics_cibles, PUBLIC_MAP, 'Publics'); }
+function getResponsablesAction(a){ return labelsFor(a.Responsable || a.responsable, CONTACT_MAP, 'Contacts'); }
+function getResponsableIdsAction(a){ return refIds(a.Responsable || a.responsable, 'Contacts').filter(id=>CONTACT_MAP[id]); }
+function getActionRef(row){ return refId(row.Action, ACTION_TABLE); }
+function getSessionForAction(actionId){ return SESSION_ROWS.find(s=>String(getActionRef(s))===String(actionId)); }
+function getJournalForAction(actionId){ return JOURNAL_ROWS.filter(j=>String(getActionRef(j))===String(actionId)).sort((a,b)=>dateSortValue(b.Date)-dateSortValue(a.Date)); }
+function latestJournal(actionId){ return getJournalForAction(actionId)[0] || null; }
+function statusTextFromEntry(j){ return j ? labelFor(j.Statut_suivi, STATUS_MAP) : ''; }
+function statusClass(label){ const s=norm(label); if(s.includes('en cours')) return 'status-green'; if(s.includes('blocage')) return 'status-orange'; if(s.includes('arbitrage')) return 'status-red'; if(s.includes('report')) return 'status-purple'; if(s.includes('cloture')) return 'status-grey'; return 'status-neutral'; }
+function sessionLieux(session){ return session ? labelsFor(session.Lieux, LIEU_MAP, 'Lieux') : []; }
+function sessionNb(session){ const n=session && session.Nb_sessions; if(n===null||n===undefined||n==='') return ''; return String(n).replace('.',','); }
+function sessionDates(session){ return firstText(session,['Dates_formation','dates_formation','Dates formation']); }
+function sessionComment(session){ return firstText(session,['Commentaire_logistique','commentaire_logistique','Commentaire logistique']); }
+
+async function fetchSafe(name){ try { return await grist.docApi.fetchTable(name); } catch(e) { console.warn('[journal] table inaccessible:', name, e); return {id:[]}; } }
+async function loadData(records){
+  showLoader(true);
+  try{
+    let attempts=0; while(!grist.docApi && attempts<20){ await new Promise(r=>setTimeout(r,100)); attempts++; }
+    const [contacts, lieux, statuts, jsessions, jactions, structs, modals, publics, annees] = await Promise.all([
+      fetchSafe('Contacts'), fetchSafe('Lieux'), fetchSafe('Statuts_suivi'), fetchSafe('Journal_sessions'), fetchSafe('Journal_Actions'), fetchSafe('Structures'), fetchSafe('Modalites'), fetchSafe('Publics'), fetchSafe('Annees')
+    ]);
+    CONTACT_ROWS=toRows(contacts); LIEU_ROWS=toRows(lieux); STATUS_ROWS=toRows(statuts); SESSION_ROWS=toRows(jsessions); JOURNAL_ROWS=toRows(jactions);
+    CONTACT_MAP=Object.fromEntries(CONTACT_ROWS.map(r=>[String(r.id),contactLabel(r)]).filter(([,v])=>v));
+    CONTACT_ID_BY_LABEL=Object.fromEntries(CONTACT_ROWS.map(r=>[contactLabel(r),String(r.id)]).filter(([k])=>k));
+    LIEU_MAP=Object.fromEntries(LIEU_ROWS.map(r=>[String(r.id),lieuLabel(r)]).filter(([,v])=>v));
+    STATUS_MAP=Object.fromEntries(STATUS_ROWS.map(r=>[String(r.id),statusLabel(r)]).filter(([,v])=>v));
+    STATUS_ID_BY_LABEL=Object.fromEntries(STATUS_ROWS.map(r=>[statusLabel(r),String(r.id)]).filter(([k])=>k));
+    if(!Object.keys(STATUS_MAP).length){ ['En cours','Blocage','Arbitrage nécessaire','Report','Clôturé'].forEach((s,i)=>{ STATUS_MAP[String(i+1)]=s; STATUS_ID_BY_LABEL[s]=String(i+1); }); }
+    STRUCT_MAP=Object.fromEntries(toRows(structs).map(r=>[String(r.id),simpleLabel(r)]).filter(([,v])=>v));
+    MODAL_MAP=Object.fromEntries(toRows(modals).map(r=>[String(r.id),simpleLabel(r)]).filter(([,v])=>v));
+    PUBLIC_MAP=Object.fromEntries(toRows(publics).map(r=>[String(r.id),firstText(r,['Libellé','libelle','Libelle','label','Label','nom','Nom'])]).filter(([,v])=>v));
+    ANNEE_VALUES=[...new Set(toRows(annees).map(r=>firstText(r,['Annee_scolaire','annee','Annee','Année','nom','Nom','libelle','Libelle'])).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
+    ALL=(records||[]).map(r=>({id:r.id,...r}));
+    fillFilters(); applyFilters();
+  }catch(e){ console.error(e); document.getElementById('grid').innerHTML=`<div class="empty"><p>Erreur de chargement</p><span>${esc(e.message)}</span></div>`; }
+  finally{ showLoader(false); }
+}
+function fillSelect(id, values){ const sel=document.getElementById(id); const cur=sel.value; while(sel.options.length>1) sel.remove(1); [...new Set(values.filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),'fr',{numeric:true})).forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; sel.appendChild(o); }); if([...sel.options].some(o=>o.value===cur)) sel.value=cur; }
+function fillFilters(){
+  fillSelect('f-annee', ANNEE_VALUES.length ? ANNEE_VALUES : ALL.map(getAnnee));
+  fillSelect('f-struct', ALL.flatMap(getStructures));
+  fillSelect('f-resp', CONTACT_ROWS.map(contactLabel).filter(Boolean));
+  fillSelect('f-status', Object.values(STATUS_MAP));
+}
+function searchableText(a){ const session=getSessionForAction(a.id); const entries=getJournalForAction(a.id); return [getTitre(a), getObjectif(a), getAnnee(a), ...getStructures(a), getModalite(a), ...getPublics(a), ...getResponsablesAction(a), sessionNb(session), sessionDates(session), sessionLieux(session).join(' '), sessionComment(session), ...entries.flatMap(j=>[statusTextFromEntry(j), labelFor(j.Responsable,CONTACT_MAP), j.Compte_rendu, j.Prochaine_etape, formatDateValue(j.Date), formatDateValue(j.Echeance)])].join(' ').toLowerCase(); }
+function applyFilters(){
+  const q=document.getElementById('f-search').value.toLowerCase().trim();
+  const annee=document.getElementById('f-annee').value; const struct=document.getElementById('f-struct').value; const resp=document.getElementById('f-resp').value; const status=document.getElementById('f-status').value;
+  FILTERED=ALL.filter(a=>{
+    const latest=latestJournal(a.id);
+    if(annee && getAnnee(a)!==annee) return false;
+    if(struct && !getStructures(a).includes(struct)) return false;
+    if(resp && !getResponsablesAction(a).includes(resp) && !getJournalForAction(a.id).some(j=>labelFor(j.Responsable,CONTACT_MAP)===resp)) return false;
+    if(status && statusTextFromEntry(latest)!==status) return false;
+    if(q && !searchableText(a).includes(q)) return false;
+    return true;
+  });
+  document.getElementById('count').textContent=`${FILTERED.length} action${FILTERED.length>1?'s':''}`; render();
+}
+function resetFilters(){ ['f-annee','f-struct','f-resp','f-status'].forEach(id=>document.getElementById(id).value=''); document.getElementById('f-search').value=''; applyFilters(); }
+function render(){
+  const grid=document.getElementById('grid');
+  if(!FILTERED.length){ grid.innerHTML='<div class="empty"><p>Aucune action trouvée</p><span>Modifiez les filtres pour élargir la recherche</span></div>'; return; }
+  grid.innerHTML=FILTERED.map((a,i)=>cardHtml(a,i)).join('');
+}
+function cardHtml(a,i){
+  const session=getSessionForAction(a.id); const latest=latestJournal(a.id); const stat=statusTextFromEntry(latest); const annee=getAnnee(a); const structs=getStructures(a); const modal=getModalite(a); const resp=getResponsablesAction(a); const lieux=sessionLieux(session); const nb=sessionNb(session); const lastDate=latest?formatDateValue(latest.Date):''; const ech=latest?formatDateValue(latest.Echeance):''; const obj=getObjectif(a).replace(/\n/g,' ').slice(0,230); const delay=Math.min(i*14,350); const isSel=a.id===selectedId;
+  return `<div class="card${isSel?' selected':''}" data-id="${a.id}" style="animation-delay:${delay}ms" onclick="openModal(${a.id})">
+    <div class="card-band"></div><div class="card-body">
+      <div class="card-top"><div class="card-top-left">${annee?`<span class="tag tag-year">${esc(annee)}</span>`:''}${stat?`<span class="tag status ${statusClass(stat)}">${esc(stat)}</span>`:''}</div><div class="card-top-right">${ech?`<span class="tag tag-date">Échéance ${esc(ech)}</span>`:''}</div></div>
+      <div class="card-title">${esc(getTitre(a))}</div>
+      ${obj?`<div class="card-objectif">${esc(obj)}${getObjectif(a).length>230?'…':''}</div>`:''}
+      <div class="card-sep"></div>
+      ${resp.length?`<div class="meta-row"><span class="meta-label">Responsable</span><div class="tags">${resp.map(r=>`<span class="tag tag-resp">${esc(r)}</span>`).join('')}</div></div>`:''}
+      ${structs.length||modal?`<div class="meta-row"><span class="meta-label">Cadre</span><div class="tags">${structs.map(s=>`<span class="tag tag-struct">${esc(s)}</span>`).join('')}${modal?`<span class="tag tag-modal">${esc(modal)}</span>`:''}</div></div>`:''}
+      ${nb||lieux.length?`<div class="meta-row"><span class="meta-label">Sessions</span><div class="tags">${nb?`<span class="tag tag-session">${esc(nb)} session${Number(String(nb).replace(',','.'))>1?'s':''}</span>`:''}${lieux.map(l=>`<span class="tag tag-session">${esc(l)}</span>`).join('')}</div></div>`:''}
+      ${latest?`<div class="meta-row"><span class="meta-label">Dernière note</span><div class="tags"><span class="tag tag-date">${esc(lastDate)}</span>${latest.Compte_rendu?`<span class="tag tag-session">${esc(String(latest.Compte_rendu).slice(0,80))}${String(latest.Compte_rendu).length>80?'…':''}</span>`:''}</div></div>`:''}
+    </div></div>`;
+}
+function openModal(id){ const a=ALL.find(x=>x.id===id); if(!a) return; CURRENT_ACTION=a; selectedId=id; document.querySelectorAll('.card').forEach(el=>el.classList.toggle('selected',+el.dataset.id===id)); document.getElementById('modal-title').textContent=getTitre(a); document.getElementById('modal-meta').textContent=[getAnnee(a), getStructures(a).join(', '), getModalite(a)].filter(Boolean).join(' · '); buildModal(); document.getElementById('overlay').classList.remove('hidden'); }
+function closeModal(e){ if(e && e.target!==document.getElementById('overlay')) return; document.getElementById('overlay').classList.add('hidden'); CURRENT_ACTION=null; }
+function buildModal(){ const a=CURRENT_ACTION; const session=getSessionForAction(a.id); SELECTED_LIEUX=new Set(refIds(session&&session.Lieux,'Lieux').filter(id=>LIEU_MAP[id])); const entries=getJournalForAction(a.id); document.getElementById('modal-body').innerHTML=`
+  <div><div class="section-title">Objectif</div><div class="box description">${esc(getObjectif(a)||'—')}</div></div>
+  <div><div class="section-title">Fiche logistique</div><div class="box">${logistiqueFormHtml(session)}</div></div>
+  <div><div class="section-title">Nouvelle entrée de journal</div><div class="box">${journalFormHtml()}</div></div>
+  <div><div class="section-title">Historique du suivi</div><div class="history">${entries.length?entries.map(historyItemHtml).join(''):'<div class="box help">Aucune entrée de journal pour cette action.</div>'}</div></div>`; }
+function optionsContacts(selected){ return CONTACT_ROWS.map(r=>`<option value="${r.id}"${String(r.id)===String(selected)?' selected':''}>${esc(contactLabel(r))}</option>`).join(''); }
+function optionsStatus(selectedLabel){ return Object.entries(STATUS_MAP).map(([id,label])=>`<option value="${esc(label)}"${label===selectedLabel?' selected':''}>${esc(label)}</option>`).join(''); }
+function logistiqueFormHtml(session){ const nb=sessionNb(session); const dates=sessionDates(session); const comm=sessionComment(session); return `<div class="form-grid">
+  <div class="mfield"><label>Nombre de sessions</label><input id="s-nb" type="number" min="1" step="1" value="${esc(nb)}" placeholder="Ex. 3"></div>
+  <div class="mfield"><label>Lieux</label><div class="chips" id="s-lieux">${LIEU_ROWS.map(r=>`<span class="chip${SELECTED_LIEUX.has(String(r.id))?' selected':''}" onclick="toggleLieu('${r.id}')">${esc(lieuLabel(r))}</span>`).join('')||'<span class="help">Aucun lieu disponible.</span>'}</div></div>
+  <div class="mfield full"><label>Dates de formation</label><textarea id="s-dates" placeholder="12/03/2026 — 9h30-12h30\n19/03/2026 — 9h30-12h30">${esc(dates)}</textarea></div>
+  <div class="mfield full"><label>Commentaire logistique</label><textarea id="s-comment" placeholder="Informations utiles sur l’organisation, les lieux, les contraintes…">${esc(comm)}</textarea></div>
+  <div class="mfield full"><div class="btn-row"><span class="msg" id="msg-session"></span><button class="btn btn-primary" onclick="saveSession()">Enregistrer la logistique</button></div></div>
+  </div>`; }
+function journalFormHtml(){ const today=new Date().toISOString().slice(0,10); const respIds=getResponsableIdsAction(CURRENT_ACTION); const defaultResp=respIds[0] || ''; return `<div class="form-grid three">
+  <div class="mfield"><label>Date</label><input id="j-date" type="date" value="${today}"></div>
+  <div class="mfield"><label>Responsable</label><select id="j-resp"><option value="">—</option>${optionsContacts(defaultResp)}</select></div>
+  <div class="mfield"><label>Statut suivi</label><select id="j-status"><option value="">—</option>${optionsStatus('En cours')}</select></div>
+  <div class="mfield full"><label>Compte rendu</label><textarea id="j-cr" placeholder="Compte rendu de l’activité du jour…"></textarea></div>
+  <div class="mfield full"><label>Prochaine étape</label><textarea id="j-next" placeholder="Prochaine action à mener…"></textarea></div>
+  <div class="mfield"><label>Échéance</label><input id="j-echeance" type="date"></div>
+  <div class="mfield full"><div class="btn-row"><span class="msg" id="msg-journal"></span><button class="btn btn-primary" onclick="addJournalEntry()">Ajouter l’entrée</button></div></div>
+  </div>`; }
+function historyItemHtml(j){ const status=statusTextFromEntry(j); const resp=labelFor(j.Responsable,CONTACT_MAP); const date=formatDateValue(j.Date); const ech=formatDateValue(j.Echeance); return `<div class="history-item"><div class="history-head"><div class="history-head-left"><span class="history-date">${esc(date||'Sans date')}</span>${status?`<span class="tag status ${statusClass(status)}">${esc(status)}</span>`:''}${resp?`<span class="tag tag-resp">${esc(resp)}</span>`:''}</div>${ech?`<span class="tag tag-date">Échéance ${esc(ech)}</span>`:''}</div>${j.Compte_rendu?`<div class="history-text">${esc(j.Compte_rendu)}</div>`:''}${j.Prochaine_etape?`<div class="history-text history-next"><strong>Prochaine étape</strong><br>${esc(j.Prochaine_etape)}</div>`:''}</div>`; }
+function toggleLieu(id){ id=String(id); if(SELECTED_LIEUX.has(id)) SELECTED_LIEUX.delete(id); else SELECTED_LIEUX.add(id); document.querySelectorAll('#s-lieux .chip').forEach(chip=>{ const text=chip.textContent.trim(); const row=LIEU_ROWS.find(r=>lieuLabel(r)===text); if(row) chip.classList.toggle('selected', SELECTED_LIEUX.has(String(row.id))); }); }
+async function saveSession(){ const msg=document.getElementById('msg-session'); msg.textContent='Enregistrement…'; msg.className='msg'; const raw=document.getElementById('s-nb').value.trim(); let nb=null; if(raw){ nb=Number(raw); if(!Number.isInteger(nb)||nb<=0){ msg.textContent='✗ Le nombre de sessions doit être un entier positif.'; msg.className='msg err'; return; } } const fields={ Action: CURRENT_ACTION.id, Nb_sessions: nb, Dates_formation: document.getElementById('s-dates').value.trim(), Lieux: ['L', ...[...SELECTED_LIEUX].map(Number)], Commentaire_logistique: document.getElementById('s-comment').value.trim() }; const existing=getSessionForAction(CURRENT_ACTION.id); try{ if(existing){ await grist.docApi.applyUserActions([['UpdateRecord', SESSION_TABLE, existing.id, fields]]); Object.assign(existing, fields); } else { const result=await grist.docApi.applyUserActions([['AddRecord', SESSION_TABLE, null, fields]]); const id=Array.isArray(result)?result[0]:result; SESSION_ROWS.push({id, ...fields}); } msg.textContent='✓ Logistique enregistrée'; msg.className='msg ok'; applyFilters(); buildModal(); } catch(e){ msg.textContent='✗ Erreur : '+e.message; msg.className='msg err'; console.error(e); } }
+async function addJournalEntry(){ const msg=document.getElementById('msg-journal'); msg.textContent='Ajout…'; msg.className='msg'; const date=document.getElementById('j-date').value; const resp=document.getElementById('j-resp').value; const statusLabel=document.getElementById('j-status').value; const statusId=STATUS_ID_BY_LABEL[statusLabel] || ''; const cr=document.getElementById('j-cr').value.trim(); const next=document.getElementById('j-next').value.trim(); const ech=document.getElementById('j-echeance').value; if(!date || !resp || !statusId){ msg.textContent='✗ Renseigner date, responsable et statut.'; msg.className='msg err'; return; } if(!cr && !next){ msg.textContent='✗ Renseigner au moins un compte rendu ou une prochaine étape.'; msg.className='msg err'; return; } const fields={ Action: CURRENT_ACTION.id, Date: dateToTs(date), Responsable: Number(resp), Statut_suivi: Number(statusId), Compte_rendu: cr, Prochaine_etape: next, Echeance: dateToTs(ech) }; try{ const result=await grist.docApi.applyUserActions([['AddRecord', JOURNAL_TABLE, null, fields]]); const id=Array.isArray(result)?result[0]:result; JOURNAL_ROWS.push({id, ...fields}); msg.textContent='✓ Entrée ajoutée'; msg.className='msg ok'; applyFilters(); buildModal(); } catch(e){ msg.textContent='✗ Erreur : '+e.message; msg.className='msg err'; console.error(e); } }
+function csvEscape(v){ const s=String(v??'').replace(/\r?\n/g,' | '); return /[;"\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
+function downloadCsv(){ const rows=FILTERED.map(a=>{ const session=getSessionForAction(a.id); const latest=latestJournal(a.id); return { titre:getTitre(a), annee:getAnnee(a), responsable:getResponsablesAction(a).join(', '), structure:getStructures(a).join(', '), modalite:getModalite(a), nb_sessions:sessionNb(session), dates_formation:sessionDates(session), lieux:sessionLieux(session).join(', '), dernier_statut:statusTextFromEntry(latest), derniere_entree:latest?formatDateValue(latest.Date):'', compte_rendu:latest&&latest.Compte_rendu||'', prochaine_etape:latest&&latest.Prochaine_etape||'', echeance:latest?formatDateValue(latest.Echeance):'' }; }); const headers=['titre','annee','responsable','structure','modalite','nb_sessions','dates_formation','lieux','dernier_statut','derniere_entree','compte_rendu','prochaine_etape','echeance']; const csv='\ufeff'+[headers.join(';'),...rows.map(r=>headers.map(h=>csvEscape(r[h])).join(';'))].join('\n'); const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='journal_actions_selection_'+new Date().toISOString().slice(0,10)+'.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }
+function showLoader(v){ document.getElementById('loader').classList.toggle('hidden',!v); }
+grist.ready({requiredAccess:'full', columns:[]});
+grist.onRecords(loadData);
+grist.onRecord(record=>{ if(!record) return; selectedId=record.id; document.querySelectorAll('.card').forEach(el=>{ const match=+el.dataset.id===selectedId; el.classList.toggle('selected',match); if(match) el.scrollIntoView({behavior:'smooth',block:'nearest'}); }); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeModal(); });
+</script>
+</body>
+</html>
