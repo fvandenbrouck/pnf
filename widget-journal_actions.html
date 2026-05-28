@@ -125,6 +125,8 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 .history-date { font-family:'DM Mono',monospace; font-size:10px; color:var(--ink3); }
 .history-text { font-size:12px; color:var(--ink2); line-height:1.55; white-space:pre-wrap; }
 .history-next { border-top:1px solid var(--border); padding-top:8px; }
+.btn-delete-entry { font-family:'DM Sans',sans-serif; font-size:10px; font-weight:600; padding:4px 8px; border-radius:6px; border:1.5px solid var(--strawberry); background:#fff; color:#8a2030; cursor:pointer; }
+.btn-delete-entry:hover { background:rgba(245,160,168,.16); }
 #loader { position:fixed; inset:0; background:rgba(247,245,242,.92); display:flex; align-items:center; justify-content:center; flex-direction:column; gap:14px; z-index:500; }
 #loader.hidden { display:none; }
 .spinner { width:28px; height:28px; border:3px solid var(--border); border-top-color:var(--navy); border-radius:50%; animation:spin .7s linear infinite; }
@@ -321,8 +323,27 @@ function journalFormHtml(){ const today=new Date().toISOString().slice(0,10); co
   <div class="mfield"><label>Échéance</label><input id="j-echeance" type="date"></div>
   <div class="mfield full"><div class="btn-row"><span class="msg" id="msg-journal"></span><button class="btn btn-primary" onclick="addJournalEntry()">Ajouter l’entrée</button></div></div>
   </div>`; }
-function historyItemHtml(j){ const status=statusTextFromEntry(j); const resp=labelFor(j.Responsable,CONTACT_MAP); const date=formatDateValue(j.Date); const ech=formatDateValue(j.Echeance); return `<div class="history-item"><div class="history-head"><div class="history-head-left"><span class="history-date">${esc(date||'Sans date')}</span>${status?`<span class="tag status ${statusClass(status)}">${esc(status)}</span>`:''}${resp?`<span class="tag tag-resp">${esc(resp)}</span>`:''}</div>${ech?`<span class="tag tag-date">Échéance ${esc(ech)}</span>`:''}</div>${j.Compte_rendu?`<div class="history-text">${esc(j.Compte_rendu)}</div>`:''}${j.Prochaine_etape?`<div class="history-text history-next"><strong>Prochaine étape</strong><br>${esc(j.Prochaine_etape)}</div>`:''}</div>`; }
+function historyItemHtml(j){ const status=statusTextFromEntry(j); const resp=labelFor(j.Responsable,CONTACT_MAP); const date=formatDateValue(j.Date); const ech=formatDateValue(j.Echeance); return `<div class="history-item"><div class="history-head"><div class="history-head-left"><span class="history-date">${esc(date||'Sans date')}</span>${status?`<span class="tag status ${statusClass(status)}">${esc(status)}</span>`:''}${resp?`<span class="tag tag-resp">${esc(resp)}</span>`:''}</div><div class="history-head-left">${ech?`<span class="tag tag-date">Échéance ${esc(ech)}</span>`:''}<button class="btn-delete-entry" onclick="deleteJournalEntry(event, ${j.id})">Supprimer</button></div></div>${j.Compte_rendu?`<div class="history-text">${esc(j.Compte_rendu)}</div>`:''}${j.Prochaine_etape?`<div class="history-text history-next"><strong>Prochaine étape</strong><br>${esc(j.Prochaine_etape)}</div>`:''}</div>`; }
 function toggleLieu(id){ id=String(id); if(SELECTED_LIEUX.has(id)) SELECTED_LIEUX.delete(id); else SELECTED_LIEUX.add(id); document.querySelectorAll('#s-lieux .chip').forEach(chip=>{ const text=chip.textContent.trim(); const row=LIEU_ROWS.find(r=>lieuLabel(r)===text); if(row) chip.classList.toggle('selected', SELECTED_LIEUX.has(String(row.id))); }); }
+
+async function deleteJournalEntry(event, id){
+  if(event) event.stopPropagation();
+  const entry = JOURNAL_ROWS.find(j => String(j.id) === String(id));
+  const date = entry ? formatDateValue(entry.Date) : '';
+  const ok = window.confirm(`Supprimer définitivement cette entrée de journal${date ? ' du ' + date : ''} ?
+
+Cette action est irréversible.`);
+  if(!ok) return;
+  try{
+    await grist.docApi.applyUserActions([['RemoveRecord', JOURNAL_TABLE, Number(id)]]);
+    JOURNAL_ROWS = JOURNAL_ROWS.filter(j => String(j.id) !== String(id));
+    applyFilters();
+    if(CURRENT_ACTION) buildModal();
+  } catch(e){
+    console.error(e);
+    window.alert('Erreur lors de la suppression : ' + e.message);
+  }
+}
 async function saveSession(){ const msg=document.getElementById('msg-session'); msg.textContent='Enregistrement…'; msg.className='msg'; const raw=document.getElementById('s-nb').value.trim(); let nb=null; if(raw){ nb=Number(raw); if(!Number.isInteger(nb)||nb<=0){ msg.textContent='✗ Le nombre de sessions doit être un entier positif.'; msg.className='msg err'; return; } } const fields={ Action: CURRENT_ACTION.id, Nb_sessions: nb, Dates_formation: document.getElementById('s-dates').value.trim(), Lieux: ['L', ...[...SELECTED_LIEUX].map(Number)], Commentaire_logistique: document.getElementById('s-comment').value.trim() }; const existing=getSessionForAction(CURRENT_ACTION.id); try{ if(existing){ await grist.docApi.applyUserActions([['UpdateRecord', SESSION_TABLE, existing.id, fields]]); Object.assign(existing, fields); } else { const result=await grist.docApi.applyUserActions([['AddRecord', SESSION_TABLE, null, fields]]); const id=Array.isArray(result)?result[0]:result; SESSION_ROWS.push({id, ...fields}); } msg.textContent='✓ Logistique enregistrée'; msg.className='msg ok'; applyFilters(); buildModal(); } catch(e){ msg.textContent='✗ Erreur : '+e.message; msg.className='msg err'; console.error(e); } }
 async function addJournalEntry(){ const msg=document.getElementById('msg-journal'); msg.textContent='Ajout…'; msg.className='msg'; const date=document.getElementById('j-date').value; const resp=document.getElementById('j-resp').value; const statusLabel=document.getElementById('j-status').value; const statusId=STATUS_ID_BY_LABEL[statusLabel] || ''; const cr=document.getElementById('j-cr').value.trim(); const next=document.getElementById('j-next').value.trim(); const ech=document.getElementById('j-echeance').value; if(!date || !resp || !statusId){ msg.textContent='✗ Renseigner date, responsable et statut.'; msg.className='msg err'; return; } if(!cr && !next){ msg.textContent='✗ Renseigner au moins un compte rendu ou une prochaine étape.'; msg.className='msg err'; return; } const fields={ Action: CURRENT_ACTION.id, Date: dateToTs(date), Responsable: Number(resp), Statut_suivi: Number(statusId), Compte_rendu: cr, Prochaine_etape: next, Echeance: dateToTs(ech) }; try{ const result=await grist.docApi.applyUserActions([['AddRecord', JOURNAL_TABLE, null, fields]]); const id=Array.isArray(result)?result[0]:result; JOURNAL_ROWS.push({id, ...fields}); msg.textContent='✓ Entrée ajoutée'; msg.className='msg ok'; applyFilters(); buildModal(); } catch(e){ msg.textContent='✗ Erreur : '+e.message; msg.className='msg err'; console.error(e); } }
 function csvEscape(v){ const s=String(v??'').replace(/\r?\n/g,' | '); return /[;"\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
