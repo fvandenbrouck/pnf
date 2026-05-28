@@ -8,6 +8,7 @@
 <!-- Version v43 : ajout contact par Nom, Prénom, Email avec colonnes Contacts robustes -->
 <!-- Version v31 : écriture prudente des références Structure et Modalité -->
 <!-- Version v33 : dirty-fields tracking to avoid reference corruption -->
+<!-- Version v58 : remplace JS_realise par heures_formation -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -724,7 +725,7 @@ html, body {
 </div>
 
 <script>
-console.info('[widget-cartes] v57 statut safe chargé');
+console.info('[widget-cartes] v58 heures_formation chargé');
 
 // ── Données ──────────────────────────────────────────────────────────────
 let ALL = [], FILTERED = [];
@@ -1944,8 +1945,8 @@ function buildModalForm(a) {
         <input type="number" id="m-js-prevision" min="0.1" step="0.1" inputmode="decimal" value="${a.JS_prevision ?? ''}" placeholder="Ex. 12.5">
       </div>
       <div class="mfield">
-        <label>JS réalisé</label>
-        <input type="number" id="m-js-realise" min="0.1" step="0.1" inputmode="decimal" value="${a.JS_realise ?? ''}" placeholder="Ex. 12.5">
+        <label>Heures de formation prévues</label>
+        <input type="number" id="m-heures-formation" min="0.1" step="0.1" inputmode="decimal" value="${a.heures_formation ?? ''}" placeholder="Ex. 18">
       </div>
     </div>
     <div class="mfield full">
@@ -2021,7 +2022,7 @@ function attachDirtyTracking() {
   bind('#m-objectif', 'input', 'objectif');
   bind('#m-gaia', 'input', 'code_gaia');
   bind('#m-js-prevision', 'input', 'js_prevision');
-  bind('#m-js-realise', 'input', 'js_realise');
+  bind('#m-heures-formation', 'input', 'heures_formation');
   bind('#m-volet', 'change', 'volet');
   bind('#m-axe', 'change', 'axe');
   bind('#m-modal', 'change', 'modalite');
@@ -2047,7 +2048,7 @@ function readFormSnapshot() {
     objectif: String(byId('m-objectif')?.value || '').trim(),
     code_gaia: String(byId('m-gaia')?.value || '').trim(),
     js_prevision: String(byId('m-js-prevision')?.value || '').trim().replace(',', '.'),
-    js_realise: String(byId('m-js-realise')?.value || '').trim().replace(',', '.'),
+    js_realise: String(byId('m-heures-formation')?.value || '').trim().replace(',', '.'),
     volet: String(byId('m-volet')?.value || '').trim(),
     axe: String(byId('m-axe')?.value || '').trim(),
     modalite: String(byId('m-modal')?.value || '').trim(),
@@ -2167,7 +2168,7 @@ async function saveRecord() {
   const actionAxeRaw = document.getElementById('m-action-axe').value;
 
   const jsPrevisionRaw = document.getElementById('m-js-prevision').value.trim().replace(',', '.');
-  const jsRealiseRaw = document.getElementById('m-js-realise').value.trim().replace(',', '.');
+  const heuresFormationRaw = document.getElementById('m-heures-formation').value.trim().replace(',', '.');
 
   const parsePositiveFloat = (raw, label) => {
     if (raw === '') return null;
@@ -2183,8 +2184,8 @@ async function saveRecord() {
 
   const jsPrevisionVal = parsePositiveFloat(jsPrevisionRaw, 'JS prévision');
   if (jsPrevisionVal === undefined) return;
-  const jsRealiseVal = parsePositiveFloat(jsRealiseRaw, 'JS réalisé');
-  if (jsRealiseVal === undefined) return;
+  const heuresFormationVal = parsePositiveFloat(heuresFormationRaw, 'Heures de formation prévues');
+  if (heuresFormationVal === undefined) return;
 
   const toTs = v => v ? Math.floor(new Date(v + 'T12:00:00').getTime()/1000) : null;
 
@@ -2210,7 +2211,7 @@ async function saveRecord() {
   if (formFieldChanged('objectif', objectifVal)) fields.objectif = objectifVal;
   if (formFieldChanged('code_gaia', gaiaVal)) fields.code_gaia = gaiaVal;
   if (formFieldChanged('js_prevision', jsPrevisionRaw)) fields.JS_prevision = jsPrevisionRaw === '' ? null : jsPrevisionVal;
-  if (formFieldChanged('js_realise', jsRealiseRaw)) fields.JS_realise = jsRealiseRaw === '' ? null : jsRealiseVal;
+  if (formFieldChanged('heures_formation', heuresFormationRaw)) fields.heures_formation = heuresFormationRaw === '' ? null : heuresFormationVal;
   if (formFieldChanged('debut', debutVal)) fields.date_debut = toTs(debutVal);
   if (formFieldChanged('fin', finVal)) fields.date_fin = toTs(finVal);
 
@@ -2340,7 +2341,7 @@ function downloadFilteredCSV() {
     'contacts',
     'degres',
     'JS_prevision',
-    'JS_realise',
+    'heures_formation',
     'code_gaia',
     'periode'
   ];
@@ -2359,7 +2360,7 @@ function downloadFilteredCSV() {
     contacts: csvJoinList(contactValues(a)),
     degres: degreLabelFromValue(getDegre(a)),
     JS_prevision: a.JS_prevision ?? '',
-    JS_realise: a.JS_realise ?? '',
+    heures_formation: a.heures_formation ?? '',
     code_gaia: a.code_gaia || '',
     periode: a.periode || ''
   }));
@@ -2469,12 +2470,12 @@ function render() {
             <div class="meta-value"><span class="tag tag-modal">${esc(modalLib)}</span></div>
           </div>` : ''}
 
-          ${(a.JS_prevision || a.JS_realise) ? `
+          ${(a.JS_prevision || a.heures_formation) ? `
           <div class="meta-row">
-            <span class="meta-label">JS</span>
+            <span class="meta-label">Volumes</span>
             <div class="meta-value tags">
               ${a.JS_prevision ? `<span class="tag tag-days">Prévision&nbsp;: ${esc(String(a.JS_prevision).replace('.', ','))}</span>` : ''}
-              ${a.JS_realise ? `<span class="tag tag-days">Réalisé&nbsp;: ${esc(String(a.JS_realise).replace('.', ','))}</span>` : ''}
+              ${a.heures_formation ? `<span class="tag tag-days">Heures prévues&nbsp;: ${esc(String(a.heures_formation).replace('.', ','))}</span>` : ''}
             </div>
           </div>` : ''}
 
