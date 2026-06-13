@@ -128,6 +128,25 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 .btn-delete-entry { font-family:'DM Sans',sans-serif; font-size:10px; font-weight:600; padding:4px 8px; border-radius:6px; border:1.5px solid var(--strawberry); background:#fff; color:#8a2030; cursor:pointer; }
 .btn-delete-entry:hover { background:rgba(245,160,168,.16); }
 
+
+.avancement-card { display:flex; flex-direction:column; gap:5px; margin:2px 0 4px; }
+.avancement-bar { display:grid; grid-template-columns:repeat(5,1fr); gap:3px; height:11px; border-radius:999px; overflow:hidden; }
+.avancement-step { background:rgba(27,58,107,.10); min-width:0; }
+.avancement-step:first-child { border-top-left-radius:999px; border-bottom-left-radius:999px; }
+.avancement-step:last-child { border-top-right-radius:999px; border-bottom-right-radius:999px; }
+.avancement-step.done { background:#43a047; }
+.avancement-step.na { background:repeating-linear-gradient(135deg, rgba(138,128,112,.45) 0, rgba(138,128,112,.45) 5px, rgba(224,216,204,.75) 5px, rgba(224,216,204,.75) 10px); }
+.avancement-labels { display:grid; grid-template-columns:repeat(5,1fr); gap:3px; font-family:'DM Mono',monospace; font-size:8.5px; color:var(--ink3); text-align:center; line-height:1.2; }
+.avancement-labels span { overflow-wrap:anywhere; }
+.avancement-summary { font-family:'DM Mono',monospace; font-size:9px; color:var(--ink3); }
+.avancement-form { display:flex; flex-direction:column; gap:12px; }
+.avancement-controls { display:flex; flex-direction:column; gap:10px; }
+.avancement-control-title { font-family:'DM Mono',monospace; color:var(--ink3); text-transform:uppercase; letter-spacing:.08em; font-size:9px; font-weight:600; }
+.avancement-checks { display:grid; grid-template-columns:repeat(auto-fit,minmax(155px,1fr)); gap:8px; }
+.avancement-check { display:flex; align-items:center; gap:8px; padding:8px 10px; border:1.5px solid var(--border); border-radius:7px; background:#fff; font-size:12px; color:var(--ink2); }
+.avancement-check input { width:16px; height:16px; accent-color:var(--navy); }
+.avancement-help { font-size:11px; color:var(--ink3); line-height:1.45; }
+
 .session-lines { display:flex; flex-direction:column; gap:8px; }
 .session-line { display:grid; grid-template-columns:82px 1fr 1fr 1fr; gap:8px; align-items:end; padding:9px; border:1px solid var(--border); border-radius:8px; background:#fff; }
 .session-line.hidden { display:none; }
@@ -176,7 +195,7 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 </div>
 
 <script>
-console.info('[widget-journal-actions] v5 sessions structurées chargé');
+console.info('[widget-journal-actions] v6 avancement pilotage chargé');
 let ALL = [], FILTERED = [], CURRENT_ACTION = null, selectedId = null;
 let CONTACT_ROWS = [], LIEU_ROWS = [], MODALITEX_ROWS = [], STATUS_ROWS = [], JOURNAL_ROWS = [], SESSION_ROWS = [];
 let CONTACT_MAP = {}, CONTACT_ID_BY_LABEL = {}, LIEU_MAP = {}, MODALITEX_MAP = {}, STATUS_MAP = {}, STATUS_ID_BY_LABEL = {};
@@ -185,6 +204,13 @@ let SELECTED_LIEUX = new Set();
 const ACTION_TABLE = 'Actions_formation';
 const JOURNAL_TABLE = 'Journal_Actions';
 const SESSION_TABLE = 'Journal_sessions';
+const AVANCEMENT_STEPS = [
+  { key:'COPIL', label:'COPIL', naLabel:'Aucun COPIL', done:'Avancement_COPIL', na:'NA_COPIL' },
+  { key:'Elise', label:'Élise', naLabel:'Aucun passage Élise', done:'Avancement_Elise', na:'NA_Elise' },
+  { key:'Courrier_EAFC', label:'Courrier EAFC', naLabel:'Aucun courrier EAFC', done:'Avancement_Courrier_EAFC', na:'NA_Courrier_EAFC' },
+  { key:'Emargement', label:'Émargement', naLabel:'Aucun émargement', done:'Avancement_Emargement', na:'NA_Emargement' },
+  { key:'Evaluation', label:'Évaluation', naLabel:'Aucune évaluation', done:'Avancement_Evaluation', na:'NA_Evaluation' }
+];
 
 function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function asList(v){ if(v===null||v===undefined||v==='') return []; if(Array.isArray(v)) return v[0]==='L'?v.slice(1):v; return [v]; }
@@ -231,6 +257,13 @@ function getPublics(a){ return labelsFor(a.id_publics || a.Publics || a['Publics
 function getResponsablesAction(a){ return labelsFor(a.Charge_d_etude || a.charge_d_etude || a.Responsable || a.responsable, CONTACT_MAP, 'Contacts'); }
 function getResponsableIdsAction(a){ return refIds(a.Charge_d_etude || a.charge_d_etude || a.Responsable || a.responsable, 'Contacts').filter(id=>CONTACT_MAP[id]); }
 function getDefaultJournalResponsableId(){ const ids = CURRENT_ACTION ? getResponsableIdsAction(CURRENT_ACTION) : []; return ids[0] || ''; }
+function truthy(v){ return v===true || v===1 || String(v||'').toLowerCase()==='true'; }
+function avancementState(a, step){ if(truthy(a&&a[step.na])) return 'na'; if(truthy(a&&a[step.done])) return 'done'; return 'todo'; }
+function avancementCounts(a){ const applicable=AVANCEMENT_STEPS.filter(s=>avancementState(a,s)!=='na'); const done=applicable.filter(s=>avancementState(a,s)==='done').length; return {done, total:applicable.length}; }
+function avancementText(a){ return AVANCEMENT_STEPS.map(s=>`${s.label}: ${avancementState(a,s)==='done'?'réalisé':avancementState(a,s)==='na'?'non applicable':'à faire'}`).join(' | '); }
+function avancementBarHtml(a){ const counts=avancementCounts(a); const summary=counts.total?`${counts.done}/${counts.total} étape${counts.total>1?'s':''} applicable${counts.total>1?'s':''} réalisée${counts.done>1?'s':''}`:'Aucune étape applicable'; return `<div class="avancement-card" title="${esc(avancementText(a))}"><div class="avancement-bar">${AVANCEMENT_STEPS.map(s=>`<span class="avancement-step ${avancementState(a,s)}"></span>`).join('')}</div><div class="avancement-labels">${AVANCEMENT_STEPS.map(s=>`<span>${esc(s.label)}</span>`).join('')}</div><div class="avancement-summary">${esc(summary)}</div></div>`; }
+function avancementFormHtml(a){ return `<div class="avancement-form">${avancementBarHtml(a)}<div class="avancement-controls"><div class="avancement-control-title">État d’avancement</div><div class="avancement-checks">${AVANCEMENT_STEPS.map(s=>`<label class="avancement-check"><input type="checkbox" id="adv-done-${s.key}" ${truthy(a&&a[s.done])?'checked':''} onchange="toggleAvancementExclusive('${s.key}','done')"> ${esc(s.label)}</label>`).join('')}</div></div><div class="avancement-controls"><div class="avancement-control-title">Non applicable</div><div class="avancement-checks">${AVANCEMENT_STEPS.map(s=>`<label class="avancement-check"><input type="checkbox" id="adv-na-${s.key}" ${truthy(a&&a[s.na])?'checked':''} onchange="toggleAvancementExclusive('${s.key}','na')"> ${esc(s.naLabel)}</label>`).join('')}</div></div><div class="avancement-help">Une étape réalisée ne peut pas être simultanément marquée comme non applicable. Le contrôle est effectué directement dans l’interface.</div><div class="btn-row"><span class="msg" id="msg-avancement"></span><button class="btn btn-primary" onclick="saveAvancement()">Enregistrer le pilotage</button></div></div>`; }
+function toggleAvancementExclusive(key, type){ const done=document.getElementById(`adv-done-${key}`); const na=document.getElementById(`adv-na-${key}`); if(type==='done' && done && done.checked && na) na.checked=false; if(type==='na' && na && na.checked && done) done.checked=false; }
 function getActionRef(row){ return refId(row.Action, ACTION_TABLE); }
 function getSessionForAction(actionId){ return SESSION_ROWS.find(s=>String(getActionRef(s))===String(actionId)); }
 function getJournalForAction(actionId){ return JOURNAL_ROWS.filter(j=>String(getActionRef(j))===String(actionId)).sort((a,b)=>dateSortValue(b.Date)-dateSortValue(a.Date)); }
@@ -285,7 +318,7 @@ function fillFilters(){
   fillSelect('f-struct', ALL.flatMap(getStructures));
   fillSelect('f-status', Object.values(STATUS_MAP));
 }
-function searchableText(a){ const session=getSessionForAction(a.id); const entries=getJournalForAction(a.id); return [getTitre(a), getObjectif(a), getAnnee(a), ...getStructures(a), getModalite(a), ...getPublics(a), ...getResponsablesAction(a), sessionNb(session), ...sessionStructuredDates(session), ...sessionStructuredLieux(session), ...sessionStructuredModalites(session), sessionComment(session), ...entries.flatMap(j=>[statusTextFromEntry(j), labelFor(j.Responsable,CONTACT_MAP), j.Compte_rendu, j.Prochaine_etape, formatDateValue(j.Date), formatDateValue(j.Echeance)])].join(' ').toLowerCase(); }
+function searchableText(a){ const session=getSessionForAction(a.id); const entries=getJournalForAction(a.id); return [getTitre(a), getObjectif(a), getAnnee(a), ...getStructures(a), getModalite(a), ...getPublics(a), ...getResponsablesAction(a), avancementText(a), sessionNb(session), ...sessionStructuredDates(session), ...sessionStructuredLieux(session), ...sessionStructuredModalites(session), sessionComment(session), ...entries.flatMap(j=>[statusTextFromEntry(j), labelFor(j.Responsable,CONTACT_MAP), j.Compte_rendu, j.Prochaine_etape, formatDateValue(j.Date), formatDateValue(j.Echeance)])].join(' ').toLowerCase(); }
 function applyFilters(){
   const q=document.getElementById('f-search').value.toLowerCase().trim();
   const annee=document.getElementById('f-annee').value; const struct=document.getElementById('f-struct').value; const status=document.getElementById('f-status').value;
@@ -311,6 +344,7 @@ function cardHtml(a,i){
     <div class="card-band"></div><div class="card-body">
       <div class="card-top"><div class="card-top-left">${annee?`<span class="tag tag-year">${esc(annee)}</span>`:''}${stat?`<span class="tag status ${statusClass(stat)}">${esc(stat)}</span>`:''}</div><div class="card-top-right">${ech?`<span class="tag tag-date">Échéance ${esc(ech)}</span>`:''}</div></div>
       <div class="card-title">${esc(getTitre(a))}</div>
+      ${avancementBarHtml(a)}
       ${obj?`<div class="card-objectif">${esc(obj)}${getObjectif(a).length>230?'…':''}</div>`:''}
       <div class="card-sep"></div>
       ${resp.length?`<div class="meta-row"><span class="meta-label">Responsable</span><div class="tags">${resp.map(r=>`<span class="tag tag-resp">${esc(r)}</span>`).join('')}</div></div>`:''}
@@ -323,6 +357,7 @@ function cardHtml(a,i){
 function openModal(id){ const a=ALL.find(x=>x.id===id); if(!a) return; CURRENT_ACTION=a; selectedId=id; document.querySelectorAll('.card').forEach(el=>el.classList.toggle('selected',+el.dataset.id===id)); document.getElementById('modal-title').textContent=getTitre(a); document.getElementById('modal-meta').textContent=[getAnnee(a), getStructures(a).join(', '), getModalite(a)].filter(Boolean).join(' · '); buildModal(); document.getElementById('overlay').classList.remove('hidden'); }
 function closeModal(e){ if(e && e.target!==document.getElementById('overlay')) return; document.getElementById('overlay').classList.add('hidden'); CURRENT_ACTION=null; }
 function buildModal(){ const a=CURRENT_ACTION; const session=getSessionForAction(a.id); const entries=getJournalForAction(a.id); document.getElementById('modal-body').innerHTML=`
+  <div><div class="section-title">Pilotage</div><div class="box">${avancementFormHtml(a)}</div></div>
   <div><div class="section-title">Objectif</div><div class="box description">${esc(getObjectif(a)||'—')}</div></div>
   <div><div class="section-title">Fiche logistique</div><div class="box">${logistiqueFormHtml(session)}</div></div>
   <div><div class="section-title">Nouvelle entrée de journal</div><div class="box">${journalFormHtml()}</div></div>
@@ -357,6 +392,30 @@ function journalFormHtml(){ const today=new Date().toISOString().slice(0,10); re
 function historyItemHtml(j){ const status=statusTextFromEntry(j); const resp=labelFor(j.Responsable,CONTACT_MAP); const date=formatDateValue(j.Date); const ech=formatDateValue(j.Echeance); return `<div class="history-item"><div class="history-head"><div class="history-head-left"><span class="history-date">${esc(date||'Sans date')}</span>${status?`<span class="tag status ${statusClass(status)}">${esc(status)}</span>`:''}${resp?`<span class="tag tag-resp">${esc(resp)}</span>`:''}</div><div class="history-head-left">${ech?`<span class="tag tag-date">Échéance ${esc(ech)}</span>`:''}<button class="btn-delete-entry" onclick="deleteJournalEntry(event, ${j.id})">Supprimer</button></div></div>${j.Compte_rendu?`<div class="history-text">${esc(j.Compte_rendu)}</div>`:''}${j.Prochaine_etape?`<div class="history-text history-next"><strong>Prochaine étape</strong><br>${esc(j.Prochaine_etape)}</div>`:''}</div>`; }
 function toggleLieu(id){ id=String(id); if(SELECTED_LIEUX.has(id)) SELECTED_LIEUX.delete(id); else SELECTED_LIEUX.add(id); document.querySelectorAll('#s-lieux .chip').forEach(chip=>{ const text=chip.textContent.trim(); const row=LIEU_ROWS.find(r=>lieuLabel(r)===text); if(row) chip.classList.toggle('selected', SELECTED_LIEUX.has(String(row.id))); }); }
 
+async function saveAvancement(){
+  const msg=document.getElementById('msg-avancement');
+  if(msg){ msg.textContent='Enregistrement…'; msg.className='msg'; }
+  const fields={};
+  AVANCEMENT_STEPS.forEach(s=>{
+    const done=document.getElementById(`adv-done-${s.key}`);
+    const na=document.getElementById(`adv-na-${s.key}`);
+    fields[s.done]=!!(done&&done.checked);
+    fields[s.na]=!!(na&&na.checked);
+    if(fields[s.done] && fields[s.na]) fields[s.na]=false;
+  });
+  try{
+    await grist.docApi.applyUserActions([['UpdateRecord', ACTION_TABLE, CURRENT_ACTION.id, fields]]);
+    Object.assign(CURRENT_ACTION, fields);
+    const idx=ALL.findIndex(a=>String(a.id)===String(CURRENT_ACTION.id));
+    if(idx>=0) Object.assign(ALL[idx], fields);
+    if(msg){ msg.textContent='✓ Pilotage enregistré'; msg.className='msg ok'; }
+    applyFilters();
+    buildModal();
+  }catch(e){
+    console.error(e);
+    if(msg){ msg.textContent='✗ Erreur : '+e.message; msg.className='msg err'; }
+  }
+}
 async function deleteJournalEntry(event, id){
   if(event) event.stopPropagation();
   const entry = JOURNAL_ROWS.find(j => String(j.id) === String(id));
@@ -378,7 +437,7 @@ Cette action est irréversible.`);
 async function saveSession(){ const msg=document.getElementById('msg-session'); msg.textContent='Enregistrement…'; msg.className='msg'; const raw=document.getElementById('s-nb').value.trim(); let nb=null; if(raw){ nb=Number(raw); if(!Number.isInteger(nb)||nb<=0){ msg.textContent='✗ Le nombre de sessions doit être un entier positif.'; msg.className='msg err'; return; } } const fields={ Action: CURRENT_ACTION.id, Nb_sessions: nb, Commentaire_logistique: document.getElementById('s-comment').value.trim() }; for(let i=0;i<MAX_SESSIONS;i++){ const date=document.getElementById(`s-date-${i}`)?.value || ''; const modalite=document.getElementById(`s-modalite-${i}`)?.value || ''; const lieu=document.getElementById(`s-lieu-${i}`)?.value || ''; fields[`Date${i}`]=dateToTs(date); fields[`Modalite${i}`]=modalite?Number(modalite):null; fields[`Lieu${i}`]=lieu?Number(lieu):null; } const existing=getSessionForAction(CURRENT_ACTION.id); try{ if(existing){ await grist.docApi.applyUserActions([['UpdateRecord', SESSION_TABLE, existing.id, fields]]); Object.assign(existing, fields); } else { const result=await grist.docApi.applyUserActions([['AddRecord', SESSION_TABLE, null, fields]]); const id=Array.isArray(result)?result[0]:result; SESSION_ROWS.push({id, ...fields}); } const dateCount=Object.keys(fields).filter(k=>/^Date\d+$/.test(k)&&fields[k]).length; const mismatch=nb && dateCount && nb!==dateCount; msg.textContent=mismatch ? `✓ Logistique enregistrée — ${compatibilityMessage(nb,dateCount)}` : '✓ Logistique enregistrée'; msg.className=mismatch?'msg warn':'msg ok'; applyFilters(); buildModal(); } catch(e){ msg.textContent='✗ Erreur : '+e.message; msg.className='msg err'; console.error(e); } }
 async function addJournalEntry(){ const msg=document.getElementById('msg-journal'); msg.textContent='Ajout…'; msg.className='msg'; const date=document.getElementById('j-date').value; const resp=getDefaultJournalResponsableId(); const statusLabel=document.getElementById('j-status').value; const statusId=STATUS_ID_BY_LABEL[statusLabel] || ''; const cr=document.getElementById('j-cr').value.trim(); const next=document.getElementById('j-next').value.trim(); const ech=document.getElementById('j-echeance').value; if(!date || !statusId){ msg.textContent='✗ Renseigner date et statut.'; msg.className='msg err'; return; } if(!cr && !next){ msg.textContent='✗ Renseigner au moins un compte rendu ou une prochaine étape.'; msg.className='msg err'; return; } const fields={ Action: CURRENT_ACTION.id, Date: dateToTs(date), Statut_suivi: Number(statusId), Compte_rendu: cr, Prochaine_etape: next, Echeance: dateToTs(ech) }; if(resp) fields.Responsable = Number(resp); try{ const result=await grist.docApi.applyUserActions([['AddRecord', JOURNAL_TABLE, null, fields]]); const id=Array.isArray(result)?result[0]:result; JOURNAL_ROWS.push({id, ...fields}); msg.textContent='✓ Entrée ajoutée'; msg.className='msg ok'; applyFilters(); buildModal(); } catch(e){ msg.textContent='✗ Erreur : '+e.message; msg.className='msg err'; console.error(e); } }
 function csvEscape(v){ const s=String(v??'').replace(/\r?\n/g,' | '); return /[;"\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
-function downloadCsv(){ const rows=FILTERED.map(a=>{ const session=getSessionForAction(a.id); const latest=latestJournal(a.id); return { titre:getTitre(a), annee:getAnnee(a), responsable:getResponsablesAction(a).join(', '), structure:getStructures(a).join(', '), modalite:getModalite(a), nb_sessions:sessionNb(session), sessions:sessionStructuredDates(session).join(' | '), lieux:sessionStructuredLieux(session).join(', '), modalites_sessions:sessionStructuredModalites(session).join(', '), notes:sessionComment(session), dernier_statut:statusTextFromEntry(latest), derniere_entree:latest?formatDateValue(latest.Date):'', compte_rendu:latest&&latest.Compte_rendu||'', prochaine_etape:latest&&latest.Prochaine_etape||'', echeance:latest?formatDateValue(latest.Echeance):'' }; }); const headers=['titre','annee','responsable','structure','modalite','nb_sessions','sessions','lieux','modalites_sessions','notes','dernier_statut','derniere_entree','compte_rendu','prochaine_etape','echeance']; const csv='﻿'+[headers.join(';'),...rows.map(r=>headers.map(h=>csvEscape(r[h])).join(';'))].join('\n'); const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='journal_actions_selection_'+new Date().toISOString().slice(0,10)+'.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }
+function downloadCsv(){ const rows=FILTERED.map(a=>{ const session=getSessionForAction(a.id); const latest=latestJournal(a.id); return { titre:getTitre(a), annee:getAnnee(a), responsable:getResponsablesAction(a).join(', '), structure:getStructures(a).join(', '), modalite:getModalite(a), nb_sessions:sessionNb(session), sessions:sessionStructuredDates(session).join(' | '), lieux:sessionStructuredLieux(session).join(', '), modalites_sessions:sessionStructuredModalites(session).join(', '), notes:sessionComment(session), avancement:avancementText(a), dernier_statut:statusTextFromEntry(latest), derniere_entree:latest?formatDateValue(latest.Date):'', compte_rendu:latest&&latest.Compte_rendu||'', prochaine_etape:latest&&latest.Prochaine_etape||'', echeance:latest?formatDateValue(latest.Echeance):'' }; }); const headers=['titre','annee','responsable','structure','modalite','nb_sessions','sessions','lieux','modalites_sessions','notes','avancement','dernier_statut','derniere_entree','compte_rendu','prochaine_etape','echeance']; const csv='﻿'+[headers.join(';'),...rows.map(r=>headers.map(h=>csvEscape(r[h])).join(';'))].join('\n'); const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='journal_actions_selection_'+new Date().toISOString().slice(0,10)+'.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }
 function showLoader(v){ document.getElementById('loader').classList.toggle('hidden',!v); }
 grist.ready({requiredAccess:'full', columns:[]});
 grist.onRecords(loadData);
