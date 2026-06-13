@@ -162,7 +162,7 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 .avancement-help { font-size:11px; color:var(--ink3); line-height:1.45; }
 
 .session-lines { display:flex; flex-direction:column; gap:8px; }
-.session-line { display:grid; grid-template-columns:82px 1fr 1fr 1fr 110px; gap:8px; align-items:end; padding:9px; border:1px solid var(--border); border-radius:8px; background:#fff; }
+.session-line { display:grid; grid-template-columns:82px 1fr 1fr 1fr 110px auto; gap:8px; align-items:end; padding:9px; border:1px solid var(--border); border-radius:8px; background:#fff; }
 .bilan-indicators { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; margin:10px 0; }
 .bilan-indicator { border:1.5px solid var(--border); border-radius:8px; background:#fff; padding:10px; display:flex; flex-direction:column; gap:4px; }
 .bilan-indicator .value { font-family:'DM Mono',monospace; font-size:15px; color:var(--navy); font-weight:600; }
@@ -170,6 +170,9 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 .session-line.hidden { display:none; }
 .session-label { font-family:'DM Mono',monospace; font-size:9px; color:var(--ink3); text-transform:uppercase; letter-spacing:.06em; padding-bottom:9px; }
 .session-line input, .session-line select { font-family:'DM Sans',sans-serif; font-size:12px; padding:8px 10px; border:1.5px solid var(--border); border-radius:7px; background:var(--white); outline:none; color:var(--ink); width:100%; }
+.btn-clear-session { font-family:'DM Sans',sans-serif; font-size:10px; font-weight:600; padding:8px 10px; border-radius:7px; border:1.5px solid var(--strawberry); background:#fff; color:#8a2030; cursor:pointer; white-space:nowrap; }
+.btn-clear-session:hover { background:rgba(245,160,168,.16); }
+.btn-clear-session:disabled { opacity:.45; cursor:not-allowed; }
 .btn-add-date { align-self:flex-start; margin-top:8px; }
 .msg.warn { color:var(--orange); }
 @media (max-width:820px) { .session-line { grid-template-columns:1fr; } .session-label { padding-bottom:0; } }
@@ -515,8 +518,27 @@ function sessionLineHtml(session,i,visibleCount){ const d=toInputDate(sessionDat
     <select id="s-modalite-${i}" onchange="updateBilanIndicators()"><option value="">Modalité</option>${optionsModaliteX(m)}</select>
     <select id="s-lieu-${i}"><option value="">Lieu</option>${optionsLieux(l)}</select>
     <input id="s-presents-${i}" type="number" min="0" step="1" value="${esc(p??'')}" placeholder="Présents" oninput="updateBilanIndicators()">
+    <button type="button" class="btn-clear-session" onclick="clearSessionLine(${i})">Supprimer</button>
   </div>`; }
 function revealNextSessionLine(){ const hidden=document.querySelector('#session-lines .session-line.hidden'); if(hidden){ hidden.classList.remove('hidden'); } updateSessionCompatibility(); const remaining=document.querySelector('#session-lines .session-line.hidden'); const btn=document.getElementById('btn-add-date'); if(btn && !remaining){ btn.disabled=true; btn.textContent='10 sessions maximum'; } }
+function clearSessionLine(i){
+  const ok = window.confirm(`Supprimer la session ${i+1} ?\n\nLa date, la modalité, le lieu et le nombre de présents seront vidés. Cliquez ensuite sur « Enregistrer le bilan » pour valider la suppression dans Grist.`);
+  if(!ok) return;
+  const date=document.getElementById(`s-date-${i}`);
+  const modalite=document.getElementById(`s-modalite-${i}`);
+  const lieu=document.getElementById(`s-lieu-${i}`);
+  const presents=document.getElementById(`s-presents-${i}`);
+  if(date) date.value='';
+  if(modalite) modalite.value='';
+  if(lieu) lieu.value='';
+  if(presents) presents.value='';
+  const line=document.querySelector(`#session-lines .session-line[data-session-index="${i}"]`);
+  if(line && i>0) line.classList.add('hidden');
+  const btn=document.getElementById('btn-add-date');
+  if(btn){ btn.disabled=false; btn.textContent='+ Ajouter une date'; }
+  updateSessionCompatibility();
+  updateBilanIndicators();
+}
 function updateSessionCompatibility(){ const msg=document.getElementById('session-compat'); if(!msg) return; const raw=document.getElementById('s-nb')?.value.trim(); const nb=raw?Number(raw):null; let count=0; for(let i=0;i<MAX_SESSIONS;i++){ if(document.getElementById(`s-date-${i}`)?.value) count++; } msg.textContent=compatibilityMessage(nb,count); msg.className = nb && count && nb!==count ? 'msg warn' : 'msg ok'; updateBilanIndicators(); }
 
 function logistiqueFormHtml(session){ const nb=sessionNb(session); const comm=sessionComment(session); const visibleCount=sessionUsedRowsCount(session); const dateCount=sessionFilledDateCount(session); const compat=compatibilityMessage(nb?Number(String(nb).replace(',','.')):null,dateCount); const c=getSessionComputed(session); return `<div class="form-grid">
