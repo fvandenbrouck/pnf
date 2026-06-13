@@ -216,7 +216,7 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 </div>
 
 <script>
-console.info('[widget-journal-actions] v14 enregistrement responsabilités corrigé chargé');
+console.info('[widget-journal-actions] v12 onglets pilotage responsable chefferie chargé');
 let ALL = [], FILTERED = [], CURRENT_ACTION = null, selectedId = null;
 let CONTACT_ROWS = [], CONTACT_SUIVI_ROWS = [], CHEFFERIE_ROWS = [], LIEU_ROWS = [], MODALITEX_ROWS = [], STATUS_ROWS = [], JOURNAL_ROWS = [], SESSION_ROWS = [];
 let CONTACT_MAP = {}, CONTACT_ID_BY_LABEL = {}, CHEFFERIE_MAP = {}, LIEU_MAP = {}, MODALITEX_MAP = {}, STATUS_MAP = {}, STATUS_ID_BY_LABEL = {};
@@ -454,27 +454,41 @@ function toggleLieu(id){ id=String(id); if(SELECTED_LIEUX.has(id)) SELECTED_LIEU
 async function savePilotageRefs(){
   const msg=document.getElementById('msg-pilotage-refs');
   if(msg){ msg.textContent='Enregistrement…'; msg.className='msg'; }
-  const activeTab = document.querySelector('.tab-btn.active')?.id?.replace('tab-btn-','') || 'pilotage';
-  const resp=document.getElementById('p-responsable-suivi')?.value || '';
-  const chef=document.getElementById('p-chefferie')?.value || '';
-  const fields={ Responsable_suivi: resp?Number(resp):null, Chefferie: chef?Number(chef):null };
+  const respEl=document.getElementById('p-responsable-suivi');
+  const chefEl=document.getElementById('p-chefferie');
+  const resp=respEl ? respEl.value : '';
+  const chef=chefEl ? chefEl.value : '';
+  const fields={
+    Responsable_suivi: resp ? Number(resp) : null,
+    Chefferie: chef ? Number(chef) : null
+  };
   try{
     await grist.docApi.applyUserActions([['UpdateRecord', ACTION_TABLE, CURRENT_ACTION.id, fields]]);
+
+    // Mise à jour locale immédiate : on évite de reconstruire la modale à partir
+    // d'un état Grist encore en cours de propagation, ce qui obligeait parfois
+    // à enregistrer deux fois pour voir la valeur sélectionnée.
     Object.assign(CURRENT_ACTION, fields);
     const idx=ALL.findIndex(a=>String(a.id)===String(CURRENT_ACTION.id));
     if(idx>=0) Object.assign(ALL[idx], fields);
-    const refreshed=ALL.find(a=>String(a.id)===String(CURRENT_ACTION.id));
-    if(refreshed) CURRENT_ACTION=refreshed;
+
+    // Les menus restent sur les valeurs choisies et la carte est recalculée
+    // depuis les valeurs locales déjà mises à jour.
+    if(respEl) respEl.value = resp;
+    if(chefEl) chefEl.value = chef;
     applyFilters();
-    buildModal();
-    showTab(activeTab);
-    const newMsg=document.getElementById('msg-pilotage-refs');
-    if(newMsg){ newMsg.textContent='✓ Responsabilités enregistrées'; newMsg.className='msg ok'; }
+    document.querySelectorAll('.card').forEach(el=>{
+      const match=String(el.dataset.id)===String(CURRENT_ACTION.id);
+      el.classList.toggle('selected',match);
+    });
+
+    if(msg){ msg.textContent='✓ Responsabilités enregistrées'; msg.className='msg ok'; }
   }catch(e){
     console.error(e);
     if(msg){ msg.textContent='✗ Erreur : '+e.message; msg.className='msg err'; }
   }
 }
+
 async function saveAvancement(){
   const msg=document.getElementById('msg-avancement');
   if(msg){ msg.textContent='Enregistrement…'; msg.className='msg'; }
