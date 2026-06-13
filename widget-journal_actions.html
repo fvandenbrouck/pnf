@@ -162,7 +162,11 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 .avancement-help { font-size:11px; color:var(--ink3); line-height:1.45; }
 
 .session-lines { display:flex; flex-direction:column; gap:8px; }
-.session-line { display:grid; grid-template-columns:82px 1fr 1fr 1fr; gap:8px; align-items:end; padding:9px; border:1px solid var(--border); border-radius:8px; background:#fff; }
+.session-line { display:grid; grid-template-columns:82px 1fr 1fr 1fr 110px; gap:8px; align-items:end; padding:9px; border:1px solid var(--border); border-radius:8px; background:#fff; }
+.bilan-indicators { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; margin:10px 0; }
+.bilan-indicator { border:1.5px solid var(--border); border-radius:8px; background:#fff; padding:10px; display:flex; flex-direction:column; gap:4px; }
+.bilan-indicator .value { font-family:'DM Mono',monospace; font-size:15px; color:var(--navy); font-weight:600; }
+.bilan-indicator .label { font-family:'DM Mono',monospace; color:var(--ink3); text-transform:uppercase; letter-spacing:.08em; font-size:8.5px; font-weight:600; }
 .session-line.hidden { display:none; }
 .session-label { font-family:'DM Mono',monospace; font-size:9px; color:var(--ink3); text-transform:uppercase; letter-spacing:.06em; padding-bottom:9px; }
 .session-line input, .session-line select { font-family:'DM Sans',sans-serif; font-size:12px; padding:8px 10px; border:1.5px solid var(--border); border-radius:7px; background:var(--white); outline:none; color:var(--ink); width:100%; }
@@ -216,7 +220,7 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 </div>
 
 <script>
-console.info('[widget-journal-actions] v12 onglets pilotage responsable chefferie chargé');
+console.info('[widget-journal-actions] v16 indicateurs bilan chargé');
 let ALL = [], FILTERED = [], CURRENT_ACTION = null, selectedId = null;
 let CONTACT_ROWS = [], CONTACT_SUIVI_ROWS = [], CHEFFERIE_ROWS = [], LIEU_ROWS = [], MODALITEX_ROWS = [], STATUS_ROWS = [], JOURNAL_ROWS = [], SESSION_ROWS = [];
 let CONTACT_MAP = {}, CONTACT_ID_BY_LABEL = {}, CHEFFERIE_MAP = {}, LIEU_MAP = {}, MODALITEX_MAP = {}, STATUS_MAP = {}, STATUS_ID_BY_LABEL = {};
@@ -335,6 +339,80 @@ function sessionStructuredLieux(session){ const out=[]; for(let i=0;i<MAX_SESSIO
 function sessionStructuredModalites(session){ const out=[]; for(let i=0;i<MAX_SESSIONS;i++){ const m=sessionModaliteLabel(session,i); if(m) out.push(m); } return [...new Set(out)]; }
 function compatibilityMessage(nb, dateCount){ if(!nb && !dateCount) return ''; if(!nb) return `${dateCount} date${dateCount>1?'s':''} renseignée${dateCount>1?'s':''}.`; if(Number(nb)===dateCount) return `✓ ${nb} session${Number(nb)>1?'s':''} prévue${Number(nb)>1?'s':''}, ${dateCount} date${dateCount>1?'s':''} renseignée${dateCount>1?'s':''}.`; return `⚠ ${nb} session${Number(nb)>1?'s':''} prévue${Number(nb)>1?'s':''}, ${dateCount} date${dateCount>1?'s':''} renseignée${dateCount>1?'s':''}.`; }
 
+function parseNum(v){
+  if(v===null||v===undefined||v==='') return null;
+  if(typeof v==='number') return Number.isFinite(v)?v:null;
+  const n=Number(String(v).replace(/\s/g,'').replace(',','.'));
+  return Number.isFinite(n)?n:null;
+}
+function toGristNumberOrNull(v){ const n=parseNum(v); return n===null?null:n; }
+function formatNumber(v, digits=0){ const n=parseNum(v); return n===null?'—':new Intl.NumberFormat('fr-FR',{maximumFractionDigits:digits, minimumFractionDigits:digits?0:0}).format(n); }
+function formatPercentValue(v){ const n=parseNum(v); if(n===null) return '—'; const pct=Math.abs(n)<=1?n*100:n; return new Intl.NumberFormat('fr-FR',{minimumFractionDigits:1,maximumFractionDigits:1}).format(pct)+' %'; }
+function sessionPresentsValue(session,i){ return session ? session[`Presents${i}`] : ''; }
+function modaliteCoefficient(label){ const s=norm(label); if(s.includes('journee entiere')) return 1; if(s.includes('webinaire') || s.includes('1/2') || s.includes('demi')) return 0.5; return 0; }
+function getSessionFormSnapshot(){
+  const out={ nb:null, nombreCopil:null, participantsPrevus:null, inscritsGaia:null, totalPresents:0, filledDates:0, journeesStagiaires:0 };
+  out.nb=parseNum(document.getElementById('s-nb')?.value);
+  out.nombreCopil=parseNum(document.getElementById('s-nb-copil')?.value);
+  out.participantsPrevus=parseNum(document.getElementById('s-participants-prevus')?.value);
+  out.inscritsGaia=parseNum(document.getElementById('s-inscrits-gaia')?.value);
+  for(let i=0;i<MAX_SESSIONS;i++){
+    const hasDate=!!document.getElementById(`s-date-${i}`)?.value;
+    const p=parseNum(document.getElementById(`s-presents-${i}`)?.value) || 0;
+    const modaliteId=document.getElementById(`s-modalite-${i}`)?.value || '';
+    const modaliteLabel=modaliteId ? (MODALITEX_MAP[String(modaliteId)] || '') : '';
+    if(hasDate) out.filledDates += 1;
+    out.totalPresents += p;
+    out.journeesStagiaires += p * modaliteCoefficient(modaliteLabel);
+  }
+  out.presentsMoyen = out.filledDates ? out.totalPresents / out.filledDates : null;
+  out.tauxGaia = out.inscritsGaia ? out.presentsMoyen / out.inscritsGaia : null;
+  out.tauxPrevu = out.participantsPrevus ? out.presentsMoyen / out.participantsPrevus : null;
+  return out;
+}
+function getSessionComputed(session){
+  const filledDates=sessionFilledDateCount(session);
+  let totalPresents=0, journeesStagiaires=0;
+  for(let i=0;i<MAX_SESSIONS;i++){
+    const p=parseNum(sessionPresentsValue(session,i)) || 0;
+    totalPresents += p;
+    journeesStagiaires += p * modaliteCoefficient(sessionModaliteLabel(session,i));
+  }
+  const participantsPrevus=parseNum(session&&session.Participants_prevus);
+  const inscritsGaia=parseNum(session&&session.Inscrits_GAIA);
+  const presentsMoyen=filledDates ? totalPresents / filledDates : null;
+  return {
+    nombreCopil: parseNum(session&&session.Nombre_COPIL),
+    participantsPrevus,
+    inscritsGaia,
+    filledDates,
+    totalPresents: parseNum(session&&session.Total_presents) ?? totalPresents,
+    presentsMoyen: parseNum(session&&session.Presents_moyen) ?? presentsMoyen,
+    journeesStagiaires: parseNum(session&&session.Journees_stagiaires) ?? journeesStagiaires,
+    tauxGaia: parseNum(session&&session.Taux_presence_GAIA) ?? (inscritsGaia ? presentsMoyen / inscritsGaia : null),
+    tauxPrevu: parseNum(session&&session.Taux_presence_prevu) ?? (participantsPrevus ? presentsMoyen / participantsPrevus : null)
+  };
+}
+function bilanIndicatorsHtml(session){
+  const c=getSessionComputed(session);
+  return `<div class="bilan-indicators" id="bilan-indicators">
+    <div class="bilan-indicator"><span class="label">Total présents</span><span class="value" id="bi-total-presents">${esc(formatNumber(c.totalPresents))}</span></div>
+    <div class="bilan-indicator"><span class="label">Présents moyens</span><span class="value" id="bi-presents-moyen">${esc(formatNumber(c.presentsMoyen,1))}</span></div>
+    <div class="bilan-indicator"><span class="label">Journées stagiaires</span><span class="value" id="bi-journees-stagiaires">${esc(formatNumber(c.journeesStagiaires,1))}</span></div>
+    <div class="bilan-indicator"><span class="label">Taux présence GAIA</span><span class="value" id="bi-taux-gaia">${esc(formatPercentValue(c.tauxGaia))}</span></div>
+    <div class="bilan-indicator"><span class="label">Taux présence / prévus</span><span class="value" id="bi-taux-prevu">${esc(formatPercentValue(c.tauxPrevu))}</span></div>
+  </div>`;
+}
+function updateBilanIndicators(){
+  const c=getSessionFormSnapshot();
+  const set=(id,val)=>{ const el=document.getElementById(id); if(el) el.textContent=val; };
+  set('bi-total-presents', formatNumber(c.totalPresents));
+  set('bi-presents-moyen', formatNumber(c.presentsMoyen,1));
+  set('bi-journees-stagiaires', formatNumber(c.journeesStagiaires,1));
+  set('bi-taux-gaia', formatPercentValue(c.tauxGaia));
+  set('bi-taux-prevu', formatPercentValue(c.tauxPrevu));
+}
+
 
 async function fetchSafe(name){ try { return await grist.docApi.fetchTable(name); } catch(e) { console.warn('[journal] table inaccessible:', name, e); return {id:[]}; } }
 async function loadData(records){
@@ -425,20 +503,25 @@ function optionsChefferie(selected){ return CHEFFERIE_ROWS.map(r=>`<option value
 function optionsStatus(selectedLabel){ return Object.entries(STATUS_MAP).map(([id,label])=>`<option value="${esc(label)}"${label===selectedLabel?' selected':''}>${esc(label)}</option>`).join(''); }
 function optionsModaliteX(selected){ return MODALITEX_ROWS.map(r=>`<option value="${r.id}"${String(r.id)===String(selected)?' selected':''}>${esc(modaliteXLabel(r))}</option>`).join(''); }
 function optionsLieux(selected){ return LIEU_ROWS.map(r=>`<option value="${r.id}"${String(r.id)===String(selected)?' selected':''}>${esc(lieuLabel(r))}</option>`).join(''); }
-function sessionLineHtml(session,i,visibleCount){ const d=toInputDate(sessionDateValue(session,i)); const m=refId(session&&session[`Modalite${i}`],'ModaliteX'); const l=refId(session&&session[`Lieu${i}`],'Lieux'); return `<div class="session-line${i<visibleCount?'':' hidden'}" data-session-index="${i}">
+function sessionLineHtml(session,i,visibleCount){ const d=toInputDate(sessionDateValue(session,i)); const m=refId(session&&session[`Modalite${i}`],'ModaliteX'); const l=refId(session&&session[`Lieu${i}`],'Lieux'); const p=sessionPresentsValue(session,i); return `<div class="session-line${i<visibleCount?'':' hidden'}" data-session-index="${i}">
     <div class="session-label">Session ${i+1}</div>
-    <input id="s-date-${i}" type="date" value="${esc(d)}" onchange="updateSessionCompatibility()">
-    <select id="s-modalite-${i}"><option value="">Modalité</option>${optionsModaliteX(m)}</select>
+    <input id="s-date-${i}" type="date" value="${esc(d)}" onchange="updateSessionCompatibility();updateBilanIndicators()">
+    <select id="s-modalite-${i}" onchange="updateBilanIndicators()"><option value="">Modalité</option>${optionsModaliteX(m)}</select>
     <select id="s-lieu-${i}"><option value="">Lieu</option>${optionsLieux(l)}</select>
+    <input id="s-presents-${i}" type="number" min="0" step="1" value="${esc(p??'')}" placeholder="Présents" oninput="updateBilanIndicators()">
   </div>`; }
 function revealNextSessionLine(){ const hidden=document.querySelector('#session-lines .session-line.hidden'); if(hidden){ hidden.classList.remove('hidden'); } updateSessionCompatibility(); const remaining=document.querySelector('#session-lines .session-line.hidden'); const btn=document.getElementById('btn-add-date'); if(btn && !remaining){ btn.disabled=true; btn.textContent='10 sessions maximum'; } }
-function updateSessionCompatibility(){ const msg=document.getElementById('session-compat'); if(!msg) return; const raw=document.getElementById('s-nb')?.value.trim(); const nb=raw?Number(raw):null; let count=0; for(let i=0;i<MAX_SESSIONS;i++){ if(document.getElementById(`s-date-${i}`)?.value) count++; } msg.textContent=compatibilityMessage(nb,count); msg.className = nb && count && nb!==count ? 'msg warn' : 'msg ok'; }
+function updateSessionCompatibility(){ const msg=document.getElementById('session-compat'); if(!msg) return; const raw=document.getElementById('s-nb')?.value.trim(); const nb=raw?Number(raw):null; let count=0; for(let i=0;i<MAX_SESSIONS;i++){ if(document.getElementById(`s-date-${i}`)?.value) count++; } msg.textContent=compatibilityMessage(nb,count); msg.className = nb && count && nb!==count ? 'msg warn' : 'msg ok'; updateBilanIndicators(); }
 
-function logistiqueFormHtml(session){ const nb=sessionNb(session); const comm=sessionComment(session); const visibleCount=sessionUsedRowsCount(session); const dateCount=sessionFilledDateCount(session); const compat=compatibilityMessage(nb?Number(String(nb).replace(',','.')):null,dateCount); return `<div class="form-grid">
+function logistiqueFormHtml(session){ const nb=sessionNb(session); const comm=sessionComment(session); const visibleCount=sessionUsedRowsCount(session); const dateCount=sessionFilledDateCount(session); const compat=compatibilityMessage(nb?Number(String(nb).replace(',','.')):null,dateCount); const c=getSessionComputed(session); return `<div class="form-grid">
+  <div class="mfield"><label>Nombre de COPIL</label><input id="s-nb-copil" type="number" min="0" step="1" value="${esc(c.nombreCopil??'')}" placeholder="Ex. 1"></div>
   <div class="mfield"><label>Nombre de sessions</label><input id="s-nb" type="number" min="1" step="1" value="${esc(nb)}" placeholder="Ex. 3" oninput="updateSessionCompatibility()"></div>
+  <div class="mfield"><label>Participants prévus</label><input id="s-participants-prevus" type="number" min="0" step="1" value="${esc(c.participantsPrevus??'')}" placeholder="Ex. 80" oninput="updateBilanIndicators()"></div>
+  <div class="mfield"><label>Inscrits GAIA</label><input id="s-inscrits-gaia" type="number" min="0" step="1" value="${esc(c.inscritsGaia??'')}" placeholder="Ex. 75" oninput="updateBilanIndicators()"></div>
+  <div class="mfield full"><label>Indicateurs de présence</label>${bilanIndicatorsHtml(session)}</div>
   <div class="mfield full"><label>Sessions de formation</label><div class="session-lines" id="session-lines">${Array.from({length:MAX_SESSIONS},(_,i)=>sessionLineHtml(session,i,visibleCount)).join('')}</div><button type="button" class="btn btn-add-date" id="btn-add-date" onclick="revealNextSessionLine()">+ Ajouter une date</button><div class="help"><span class="msg ${nb&&dateCount&&Number(String(nb).replace(',','.'))!==dateCount?'warn':'ok'}" id="session-compat">${esc(compat)}</span></div></div>
   <div class="mfield full"><label>Notes</label><textarea id="s-comment" placeholder="Informations utiles sur l’organisation, les lieux, les contraintes…">${esc(comm)}</textarea></div>
-  <div class="mfield full"><div class="btn-row"><span class="msg" id="msg-session"></span><button class="btn btn-primary" onclick="saveSession()">Enregistrer la logistique</button></div></div>
+  <div class="mfield full"><div class="btn-row"><span class="msg" id="msg-session"></span><button class="btn btn-primary" onclick="saveSession()">Enregistrer le bilan</button></div></div>
   </div>`; }
 function journalFormHtml(){ const today=new Date().toISOString().slice(0,10); return `<div class="form-grid three">
   <div class="mfield"><label>Date</label><input id="j-date" type="date" value="${today}"></div>
@@ -531,10 +614,10 @@ Cette action est irréversible.`);
     window.alert('Erreur lors de la suppression : ' + e.message);
   }
 }
-async function saveSession(){ const msg=document.getElementById('msg-session'); msg.textContent='Enregistrement…'; msg.className='msg'; const raw=document.getElementById('s-nb').value.trim(); let nb=null; if(raw){ nb=Number(raw); if(!Number.isInteger(nb)||nb<=0){ msg.textContent='✗ Le nombre de sessions doit être un entier positif.'; msg.className='msg err'; return; } } const fields={ Action: CURRENT_ACTION.id, Nb_sessions: nb, Commentaire_logistique: document.getElementById('s-comment').value.trim() }; for(let i=0;i<MAX_SESSIONS;i++){ const date=document.getElementById(`s-date-${i}`)?.value || ''; const modalite=document.getElementById(`s-modalite-${i}`)?.value || ''; const lieu=document.getElementById(`s-lieu-${i}`)?.value || ''; fields[`Date${i}`]=dateToTs(date); fields[`Modalite${i}`]=modalite?Number(modalite):null; fields[`Lieu${i}`]=lieu?Number(lieu):null; } const existing=getSessionForAction(CURRENT_ACTION.id); try{ if(existing){ await grist.docApi.applyUserActions([['UpdateRecord', SESSION_TABLE, existing.id, fields]]); Object.assign(existing, fields); } else { const result=await grist.docApi.applyUserActions([['AddRecord', SESSION_TABLE, null, fields]]); const id=Array.isArray(result)?result[0]:result; SESSION_ROWS.push({id, ...fields}); } const dateCount=Object.keys(fields).filter(k=>/^Date\d+$/.test(k)&&fields[k]).length; const mismatch=nb && dateCount && nb!==dateCount; msg.textContent=mismatch ? `✓ Logistique enregistrée — ${compatibilityMessage(nb,dateCount)}` : '✓ Logistique enregistrée'; msg.className=mismatch?'msg warn':'msg ok'; applyFilters(); buildModal(); } catch(e){ msg.textContent='✗ Erreur : '+e.message; msg.className='msg err'; console.error(e); } }
+async function saveSession(){ const msg=document.getElementById('msg-session'); msg.textContent='Enregistrement…'; msg.className='msg'; const raw=document.getElementById('s-nb').value.trim(); let nb=null; if(raw){ nb=Number(raw); if(!Number.isInteger(nb)||nb<=0){ msg.textContent='✗ Le nombre de sessions doit être un entier positif.'; msg.className='msg err'; return; } } const fields={ Action: CURRENT_ACTION.id, Nb_sessions: nb, Nombre_COPIL: toGristNumberOrNull(document.getElementById('s-nb-copil')?.value), Participants_prevus: toGristNumberOrNull(document.getElementById('s-participants-prevus')?.value), Inscrits_GAIA: toGristNumberOrNull(document.getElementById('s-inscrits-gaia')?.value), Commentaire_logistique: document.getElementById('s-comment').value.trim() }; for(let i=0;i<MAX_SESSIONS;i++){ const date=document.getElementById(`s-date-${i}`)?.value || ''; const modalite=document.getElementById(`s-modalite-${i}`)?.value || ''; const lieu=document.getElementById(`s-lieu-${i}`)?.value || ''; const presents=document.getElementById(`s-presents-${i}`)?.value || ''; fields[`Date${i}`]=dateToTs(date); fields[`Modalite${i}`]=modalite?Number(modalite):null; fields[`Lieu${i}`]=lieu?Number(lieu):null; fields[`Presents${i}`]=toGristNumberOrNull(presents); } const existing=getSessionForAction(CURRENT_ACTION.id); try{ if(existing){ await grist.docApi.applyUserActions([['UpdateRecord', SESSION_TABLE, existing.id, fields]]); Object.assign(existing, fields); } else { const result=await grist.docApi.applyUserActions([['AddRecord', SESSION_TABLE, null, fields]]); const id=Array.isArray(result)?result[0]:result; SESSION_ROWS.push({id, ...fields}); } const dateCount=Object.keys(fields).filter(k=>/^Date\d+$/.test(k)&&fields[k]).length; const mismatch=nb && dateCount && nb!==dateCount; msg.textContent=mismatch ? `✓ Logistique enregistrée — ${compatibilityMessage(nb,dateCount)}` : '✓ Logistique enregistrée'; msg.className=mismatch?'msg warn':'msg ok'; applyFilters(); buildModal(); } catch(e){ msg.textContent='✗ Erreur : '+e.message; msg.className='msg err'; console.error(e); } }
 async function addJournalEntry(){ const msg=document.getElementById('msg-journal'); msg.textContent='Ajout…'; msg.className='msg'; const date=document.getElementById('j-date').value; const resp=getDefaultJournalResponsableId(); const statusLabel=document.getElementById('j-status').value; const statusId=STATUS_ID_BY_LABEL[statusLabel] || ''; const cr=document.getElementById('j-cr').value.trim(); const next=document.getElementById('j-next').value.trim(); const ech=document.getElementById('j-echeance').value; if(!date || !statusId){ msg.textContent='✗ Renseigner date et statut.'; msg.className='msg err'; return; } if(!cr && !next){ msg.textContent='✗ Renseigner au moins un compte rendu ou une prochaine étape.'; msg.className='msg err'; return; } const fields={ Action: CURRENT_ACTION.id, Date: dateToTs(date), Statut_suivi: Number(statusId), Compte_rendu: cr, Prochaine_etape: next, Echeance: dateToTs(ech) }; if(resp) fields.Responsable = Number(resp); try{ const result=await grist.docApi.applyUserActions([['AddRecord', JOURNAL_TABLE, null, fields]]); const id=Array.isArray(result)?result[0]:result; JOURNAL_ROWS.push({id, ...fields}); msg.textContent='✓ Entrée ajoutée'; msg.className='msg ok'; applyFilters(); buildModal(); } catch(e){ msg.textContent='✗ Erreur : '+e.message; msg.className='msg err'; console.error(e); } }
 function csvEscape(v){ const s=String(v??'').replace(/\r?\n/g,' | '); return /[;"\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
-function downloadCsv(){ const rows=FILTERED.map(a=>{ const session=getSessionForAction(a.id); const latest=latestJournal(a.id); return { titre:getTitre(a), annee:getAnnee(a), responsable:getResponsablesAction(a).join(', '), chefferie:getChefferieLabel(a), structure:getStructures(a).join(', '), modalite:getModalite(a), nb_sessions:sessionNb(session), sessions:sessionStructuredDates(session).join(' | '), lieux:sessionStructuredLieux(session).join(', '), modalites_sessions:sessionStructuredModalites(session).join(', '), notes:sessionComment(session), avancement:avancementText(a), dernier_statut:statusTextFromEntry(latest), derniere_entree:latest?formatDateValue(latest.Date):'', compte_rendu:latest&&latest.Compte_rendu||'', prochaine_etape:latest&&latest.Prochaine_etape||'', echeance:latest?formatDateValue(latest.Echeance):'' }; }); const headers=['titre','annee','responsable','chefferie','structure','modalite','nb_sessions','sessions','lieux','modalites_sessions','notes','avancement','dernier_statut','derniere_entree','compte_rendu','prochaine_etape','echeance']; const csv='﻿'+[headers.join(';'),...rows.map(r=>headers.map(h=>csvEscape(r[h])).join(';'))].join('\n'); const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='journal_actions_selection_'+new Date().toISOString().slice(0,10)+'.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }
+function downloadCsv(){ const rows=FILTERED.map(a=>{ const session=getSessionForAction(a.id); const latest=latestJournal(a.id); return { titre:getTitre(a), annee:getAnnee(a), responsable:getResponsablesAction(a).join(', '), chefferie:getChefferieLabel(a), structure:getStructures(a).join(', '), modalite:getModalite(a), nb_sessions:sessionNb(session), nombre_copil:getSessionComputed(session).nombreCopil??'', participants_prevus:getSessionComputed(session).participantsPrevus??'', inscrits_gaia:getSessionComputed(session).inscritsGaia??'', sessions:sessionStructuredDates(session).join(' | '), lieux:sessionStructuredLieux(session).join(', '), modalites_sessions:sessionStructuredModalites(session).join(', '), total_presents:getSessionComputed(session).totalPresents??'', journees_stagiaires:getSessionComputed(session).journeesStagiaires??'', taux_presence_gaia:formatPercentValue(getSessionComputed(session).tauxGaia), taux_presence_prevu:formatPercentValue(getSessionComputed(session).tauxPrevu), notes:sessionComment(session), avancement:avancementText(a), dernier_statut:statusTextFromEntry(latest), derniere_entree:latest?formatDateValue(latest.Date):'', compte_rendu:latest&&latest.Compte_rendu||'', prochaine_etape:latest&&latest.Prochaine_etape||'', echeance:latest?formatDateValue(latest.Echeance):'' }; }); const headers=['titre','annee','responsable','chefferie','structure','modalite','nb_sessions','nombre_copil','participants_prevus','inscrits_gaia','sessions','lieux','modalites_sessions','total_presents','journees_stagiaires','taux_presence_gaia','taux_presence_prevu','notes','avancement','dernier_statut','derniere_entree','compte_rendu','prochaine_etape','echeance']; const csv='﻿'+[headers.join(';'),...rows.map(r=>headers.map(h=>csvEscape(r[h])).join(';'))].join('\n'); const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='journal_actions_selection_'+new Date().toISOString().slice(0,10)+'.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }
 function showLoader(v){ document.getElementById('loader').classList.toggle('hidden',!v); }
 grist.ready({requiredAccess:'full', columns:[]});
 grist.onRecords(loadData);
