@@ -140,6 +140,9 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 .identity-label { font-family:'DM Mono',monospace; color:var(--ink3); text-transform:uppercase; letter-spacing:.08em; font-size:8.5px; font-weight:600; }
 .identity-value { font-size:12px; color:var(--ink2); line-height:1.35; }
 .pilotage-form { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
+.responsable-checks { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:8px; }
+.responsable-check { display:flex; align-items:center; gap:8px; padding:8px 10px; border:1.5px solid var(--border); border-radius:7px; background:#fff; font-size:12px; color:var(--ink2); }
+.responsable-check input { width:16px; height:16px; accent-color:var(--navy); flex:0 0 auto; }
 @media (max-width:820px) { .pilotage-form { grid-template-columns:1fr; } .tabs { padding:0 18px 10px; } }
 
 
@@ -225,7 +228,7 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 </div>
 
 <script>
-console.info('[widget-journal-actions] v20 filtre responsable suivi par structure id chargé');
+console.info('[widget-journal-actions] v21 responsables de suivi multiples chargé');
 let ALL = [], FILTERED = [], CURRENT_ACTION = null, selectedId = null;
 let CONTACT_ROWS = [], CONTACT_SUIVI_ROWS = [], CHEFFERIE_ROWS = [], LIEU_ROWS = [], MODALITEX_ROWS = [], STATUS_ROWS = [], JOURNAL_ROWS = [], SESSION_ROWS = [];
 let CONTACT_MAP = {}, CONTACT_ID_BY_LABEL = {}, CHEFFERIE_MAP = {}, LIEU_MAP = {}, MODALITEX_MAP = {}, STATUS_MAP = {}, STATUS_ID_BY_LABEL = {};
@@ -285,12 +288,15 @@ function simpleLabel(r){ return firstText(r,['libelle','Libelle','Libellé','lab
 function structureCode(r){ return firstText(r,['Code','code','CODE','Code_structure','code_structure','libelle','Libelle','Libellé','nom','Nom']); }
 function contactStructureIds(r){ return refIds(r.Structure || r.structure || r.Structures || r.id_structure || r['Structure porteuse'], 'Structures'); }
 function isSuiviContact(r){ const ids=contactStructureIds(r); return ids.some(id=>String(id)===String(SUIVI_STRUCTURE_ID)); }
-function suiviContactRows(selectedId=''){
+function suiviContactRows(selectedIds=[]){
   const rows=CONTACT_ROWS.filter(isSuiviContact);
-  if(selectedId && !rows.some(r=>String(r.id)===String(selectedId))){
-    const selected=CONTACT_ROWS.find(r=>String(r.id)===String(selectedId));
-    if(selected) rows.push(selected);
-  }
+  const ids=Array.isArray(selectedIds) ? selectedIds.map(String) : (selectedIds ? [String(selectedIds)] : []);
+  ids.forEach(id=>{
+    if(id && !rows.some(r=>String(r.id)===id)){
+      const selected=CONTACT_ROWS.find(r=>String(r.id)===id);
+      if(selected) rows.push(selected);
+    }
+  });
   return rows;
 }
 function contactLabel(r){ const np=firstText(r,['Nom Prénom','Nom Prenom','nom_prenom','NOM_PRENOM','Nom_prenom']); const nom=firstText(r,['NOM','Nom','nom']); const prenom=firstText(r,['PRENOM','Prénom','Prenom','prenom']); const email=firstText(r,['Email','EMAIL','email','mail']); return np || [nom,prenom].filter(Boolean).join(' ').trim() || [prenom,nom].filter(Boolean).join(' ').trim() || email; }
@@ -306,15 +312,16 @@ function getModalite(a){ return labelFor(a.id_modalite || a.Modalite || a['Modal
 function getPublics(a){ return labelsFor(a.id_publics || a.Publics || a['Publics cibles'] || a.publics_cibles, PUBLIC_MAP, 'Publics'); }
 function getResponsablesAction(a){ return labelsFor(a.Responsable_suivi || a.responsable_suivi || a.Charge_d_etude || a.charge_d_etude || a.Responsable || a.responsable, CONTACT_MAP, 'Contacts'); }
 function getResponsableIdsAction(a){ return refIds(a.Responsable_suivi || a.responsable_suivi || a.Charge_d_etude || a.charge_d_etude || a.Responsable || a.responsable, 'Contacts').filter(id=>CONTACT_MAP[id]); }
-function getResponsableSuiviId(a){
+function getResponsableSuiviIds(a){
   const raw = a.Responsable_suivi || a.responsable_suivi;
-  const id = refId(raw, 'Contacts');
-  if(id && CONTACT_MAP[id]) return id;
-  const label = labelFor(raw, CONTACT_MAP);
-  const found = CONTACT_ROWS.find(r=>contactLabel(r)===label);
-  return found ? String(found.id) : (id || '');
+  return refIds(raw, 'Contacts').filter(id=>CONTACT_MAP[id]);
 }
-function getResponsableSuiviLabel(a){ return labelFor(a.Responsable_suivi || a.responsable_suivi, CONTACT_MAP); }
+function getResponsableSuiviId(a){
+  const ids=getResponsableSuiviIds(a);
+  return ids[0] || '';
+}
+function getResponsableSuiviLabels(a){ return getResponsableSuiviIds(a).map(id=>CONTACT_MAP[id]).filter(Boolean); }
+function getResponsableSuiviLabel(a){ return getResponsableSuiviLabels(a).join(', '); }
 function getChefferieId(a){ return refId(a.Chefferie || a.chefferie, 'Chefferie'); }
 function getChefferieLabel(a){ return labelFor(a.Chefferie || a.chefferie, CHEFFERIE_MAP); }
 function getDefaultJournalResponsableId(){ const ids = CURRENT_ACTION ? getResponsableIdsAction(CURRENT_ACTION) : []; return ids[0] || ''; }
@@ -466,7 +473,7 @@ function fillSelect(id, values){ const sel=document.getElementById(id); const cu
 function fillFilters(){
   fillSelect('f-annee', ANNEE_VALUES.length ? ANNEE_VALUES : ALL.map(getAnnee));
   fillSelect('f-struct', ALL.flatMap(getStructures));
-  fillSelect('f-responsable-suivi', [...CONTACT_SUIVI_ROWS.map(contactLabel), ...ALL.map(getResponsableSuiviLabel)].filter(Boolean));
+  fillSelect('f-responsable-suivi', [...CONTACT_SUIVI_ROWS.map(contactLabel), ...ALL.flatMap(getResponsableSuiviLabels)].filter(Boolean));
   fillSelect('f-chefferie', [...CHEFFERIE_ROWS.map(chefferieLabel), ...ALL.map(getChefferieLabel)].filter(Boolean));
   fillSelect('f-status', Object.values(STATUS_MAP));
 }
@@ -478,7 +485,7 @@ function applyFilters(){
     const latest=latestJournal(a.id);
     if(annee && getAnnee(a)!==annee) return false;
     if(struct && !getStructures(a).includes(struct)) return false;
-    if(respSuivi && getResponsableSuiviLabel(a)!==respSuivi) return false;
+    if(respSuivi && !getResponsableSuiviLabels(a).includes(respSuivi)) return false;
     if(chef && getChefferieLabel(a)!==chef) return false;
     if(status && statusTextFromEntry(latest)!==status) return false;
     if(avancement && !avancementMatchesFilter(a,avancement)) return false;
@@ -519,8 +526,8 @@ function buildModal(){ const a=CURRENT_ACTION; const session=getSessionForAction
   <div class="tab-panel" id="tab-bilan"><div><div class="section-title">Fiche logistique</div><div class="box">${logistiqueFormHtml(session)}</div></div></div>`; }
 function showTab(name){ ['pilotage','journal','bilan'].forEach(t=>{ const panel=document.getElementById(`tab-${t}`); const btn=document.getElementById(`tab-btn-${t}`); if(panel) panel.classList.toggle('active',t===name); if(btn) btn.classList.toggle('active',t===name); }); }
 function pilotageIdentityHtml(a){ const code=getCodeGaia(a)||'—'; const annee=getAnnee(a)||'—'; const struct=getStructures(a).join(', ')||'—'; const modal=getModalite(a)||'—'; const publics=getPublics(a).join(', ')||'—'; return `<div class="identity-grid"><div class="identity-item"><span class="identity-label">Année</span><span class="identity-value">${esc(annee)}</span></div><div class="identity-item"><span class="identity-label">Code GAIA</span><span class="identity-value">${esc(code)}</span></div><div class="identity-item"><span class="identity-label">Structure</span><span class="identity-value">${esc(struct)}</span></div><div class="identity-item"><span class="identity-label">Modalité</span><span class="identity-value">${esc(modal)}</span></div><div class="identity-item"><span class="identity-label">Publics</span><span class="identity-value">${esc(publics)}</span></div></div>`; }
-function pilotageRefsFormHtml(a){ const resp=getResponsableSuiviId(a); const chef=getChefferieId(a); return `<div class="pilotage-form"><div class="mfield"><label>Responsable du suivi</label><select id="p-responsable-suivi"><option value="">—</option>${optionsResponsablesSuivi(resp)}</select></div><div class="mfield"><label>Chefferie</label><select id="p-chefferie"><option value="">—</option>${optionsChefferie(chef)}</select></div></div><div class="btn-row"><span class="msg" id="msg-pilotage-refs"></span><button class="btn btn-primary" onclick="savePilotageRefs()">Enregistrer les responsabilités</button></div>`; }
-function optionsResponsablesSuivi(selected){ return suiviContactRows(selected).map(r=>`<option value="${r.id}"${String(r.id)===String(selected)?' selected':''}>${esc(contactLabel(r))}</option>`).join(''); }
+function pilotageRefsFormHtml(a){ const respIds=getResponsableSuiviIds(a); const chef=getChefferieId(a); return `<div class="pilotage-form"><div class="mfield full"><label>Responsables du suivi</label><div class="responsable-checks" id="p-responsable-suivi-list">${optionsResponsablesSuivi(respIds)}</div><div class="help">Liste limitée aux contacts rattachés à la structure Dgesco A3-1 (Structures.$id = ${esc(SUIVI_STRUCTURE_ID)}). Les contacts déjà présents dans l’action sont cochés par défaut.</div></div><div class="mfield"><label>Chefferie</label><select id="p-chefferie"><option value="">—</option>${optionsChefferie(chef)}</select></div></div><div class="btn-row"><span class="msg" id="msg-pilotage-refs"></span><button class="btn btn-primary" onclick="savePilotageRefs()">Enregistrer les responsabilités</button></div>`; }
+function optionsResponsablesSuivi(selectedIds=[]){ const selectedSet=new Set((selectedIds||[]).map(String)); return suiviContactRows(selectedIds).map(r=>`<label class="responsable-check"><input type="checkbox" class="p-responsable-suivi" value="${r.id}"${selectedSet.has(String(r.id))?' checked':''}> ${esc(contactLabel(r))}</label>`).join('') || '<div class="help">Aucun contact Dgesco A3-1 trouvé.</div>'; }
 function optionsContacts(selected){ return CONTACT_ROWS.map(r=>`<option value="${r.id}"${String(r.id)===String(selected)?' selected':''}>${esc(contactLabel(r))}</option>`).join(''); }
 function optionsChefferie(selected){ return CHEFFERIE_ROWS.map(r=>`<option value="${r.id}"${String(r.id)===String(selected)?' selected':''}>${esc(chefferieLabel(r))}</option>`).join(''); }
 function optionsStatus(selectedLabel){ return Object.entries(STATUS_MAP).map(([id,label])=>`<option value="${esc(label)}"${label===selectedLabel?' selected':''}>${esc(label)}</option>`).join(''); }
@@ -579,12 +586,12 @@ function toggleLieu(id){ id=String(id); if(SELECTED_LIEUX.has(id)) SELECTED_LIEU
 async function savePilotageRefs(){
   const msg=document.getElementById('msg-pilotage-refs');
   if(msg){ msg.textContent='Enregistrement…'; msg.className='msg'; }
-  const respEl=document.getElementById('p-responsable-suivi');
+  const respEls=[...document.querySelectorAll('.p-responsable-suivi:checked')];
   const chefEl=document.getElementById('p-chefferie');
-  const resp=respEl ? respEl.value : '';
+  const respIds=respEls.map(el=>Number(el.value)).filter(Number.isFinite);
   const chef=chefEl ? chefEl.value : '';
   const fields={
-    Responsable_suivi: resp ? Number(resp) : null,
+    Responsable_suivi: ['L', ...respIds],
     Chefferie: chef ? Number(chef) : null
   };
   try{
@@ -597,9 +604,9 @@ async function savePilotageRefs(){
     const idx=ALL.findIndex(a=>String(a.id)===String(CURRENT_ACTION.id));
     if(idx>=0) Object.assign(ALL[idx], fields);
 
-    // Les menus restent sur les valeurs choisies et la carte est recalculée
+    // Les cases restent sur les valeurs choisies et la carte est recalculée
     // depuis les valeurs locales déjà mises à jour.
-    if(respEl) respEl.value = resp;
+    document.querySelectorAll('.p-responsable-suivi').forEach(el=>{ el.checked = respIds.includes(Number(el.value)); });
     if(chefEl) chefEl.value = chef;
     applyFilters();
     document.querySelectorAll('.card').forEach(el=>{
