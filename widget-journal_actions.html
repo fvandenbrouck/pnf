@@ -144,8 +144,8 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 .responsable-check { display:inline-flex; align-items:center; gap:7px; padding:7px 11px; border:1.5px solid var(--border); border-radius:999px; background:var(--bg); font-family:'DM Mono',monospace; font-size:10px; color:var(--ink2); cursor:pointer; user-select:none; transition:.12s; }
 .responsable-check:hover { border-color:var(--navy); color:var(--navy); background:var(--navy-l); }
 .responsable-check input { position:absolute; opacity:0; pointer-events:none; }
-.responsable-check:has(input:checked) { border-color:var(--navy); background:var(--navy); color:#fff; font-weight:600; }
-.responsable-check:has(input:checked)::after { content:'✓'; font-weight:700; }
+.responsable-check:has(input:checked), .responsable-check.active { border-color:var(--navy); background:var(--navy); color:#fff; font-weight:600; }
+.responsable-check:has(input:checked)::after, .responsable-check.active::after { content:'✓'; font-weight:700; }
 @media (max-width:820px) { .pilotage-form { grid-template-columns:1fr; } .tabs { padding:0 18px 10px; } }
 
 
@@ -231,7 +231,7 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 </div>
 
 <script>
-console.info('[widget-journal-actions] v25 responsables par ids chargé');
+console.info('[widget-journal-actions] v26 responsables ids auto chargé');
 let ALL = [], FILTERED = [], CURRENT_ACTION = null, selectedId = null;
 let CONTACT_ROWS = [], CONTACT_SUIVI_ROWS = [], CHEFFERIE_ROWS = [], LIEU_ROWS = [], MODALITEX_ROWS = [], STATUS_ROWS = [], JOURNAL_ROWS = [], SESSION_ROWS = [];
 let CONTACT_MAP = {}, CONTACT_ID_BY_LABEL = {}, CONTACT_ID_BY_NORM_LABEL = {}, CHEFFERIE_MAP = {}, CHEFFERIE_ID_BY_LABEL = {}, LIEU_MAP = {}, MODALITEX_MAP = {}, STATUS_MAP = {}, STATUS_ID_BY_LABEL = {};
@@ -366,34 +366,34 @@ function getPublics(a){ return labelsFor(a.id_publics || a.Publics || a['Publics
 function getResponsablesAction(a){ return labelsFor(a.Responsable_suivi || a.responsable_suivi || a.Charge_d_etude || a.charge_d_etude || a.Responsable || a.responsable, CONTACT_MAP, 'Contacts'); }
 function getResponsableIdsAction(a){ return refIds(a.Responsable_suivi || a.responsable_suivi || a.Charge_d_etude || a.charge_d_etude || a.Responsable || a.responsable, 'Contacts').filter(id=>CONTACT_MAP[id]); }
 function getResponsableSuiviIds(a){
-  // Priorité à une éventuelle colonne formule qui expose directement les $id
-  // des contacts. C'est la lecture la plus fiable pour une colonne Références
-  // multiples, car elle évite les variations de libellé renvoyées par Grist.
-  const idFields = [
-    a.Responsable_suivi_ids,
-    a.Responsable_suivi_IDs,
-    a.Responsables_suivi_ids,
-    a.Responsable_suivi_id,
-    a.responsable_suivi_ids
-  ];
   const ids = new Set();
-  idFields.forEach(rawIds=>{
-    refIds(rawIds, 'Contacts').forEach(id=>{ if(CONTACT_MAP[id]) ids.add(String(id)); });
+  const addFrom = raw => {
+    refIds(raw, 'Contacts').forEach(id=>{ if(CONTACT_MAP[id]) ids.add(String(id)); });
+    asList(raw).forEach(v=>{
+      if(v===null || v===undefined || v==='' || v==='L' || v==='R') return;
+      if(Array.isArray(v) || typeof v==='object') return;
+      const s=String(v).trim();
+      const id=labelToId(s, 'Contacts') || CONTACT_ID_BY_NORM_LABEL[norm(stripEmail(s))];
+      if(id && CONTACT_MAP[id]) ids.add(String(id));
+    });
+  };
+
+  // Lecture prioritaire des colonnes formule exposant les $id.
+  // On ne dépend plus seulement d'un nom technique exact : si Grist a créé
+  // un identifiant interne légèrement différent, toute colonne contenant
+  // responsable + suivi + id est inspectée.
+  Object.entries(a || {}).forEach(([key, value])=>{
+    const k = norm(key).replace(/[^a-z0-9]/g,'');
+    if(k.includes('responsable') && k.includes('suivi') && k.includes('id')) addFrom(value);
   });
 
-  // Fallback : lecture directe de la colonne Références multiples.
-  const raw = a.Responsable_suivi || a.responsable_suivi;
-  refIds(raw, 'Contacts').forEach(id=>{ if(CONTACT_MAP[id]) ids.add(String(id)); });
-
-  // Dernier fallback : si Grist renvoie des libellés affichés, on les rapproche
-  // des contacts connus. Cette voie ne sert qu'en secours.
-  asList(raw).forEach(v=>{
-    if(v===null || v===undefined || v==='' || v==='L' || v==='R') return;
-    if(Array.isArray(v) || typeof v==='object') return;
-    const s=String(v).trim();
-    const id=labelToId(s, 'Contacts') || CONTACT_ID_BY_NORM_LABEL[norm(stripEmail(s))];
-    if(id && CONTACT_MAP[id]) ids.add(String(id));
+  // Lecture directe de la colonne Références multiples, au cas où Grist renvoie
+  // déjà les id ou les libellés affichés.
+  Object.entries(a || {}).forEach(([key, value])=>{
+    const k = norm(key).replace(/[^a-z0-9]/g,'');
+    if(k.includes('responsable') && k.includes('suivi') && !k.includes('id')) addFrom(value);
   });
+
   return [...ids];
 }
 function getResponsableSuiviId(a){
@@ -617,7 +617,7 @@ function buildModal(){ const a=CURRENT_ACTION; const session=getSessionForAction
 function showTab(name){ ['pilotage','journal','bilan'].forEach(t=>{ const panel=document.getElementById(`tab-${t}`); const btn=document.getElementById(`tab-btn-${t}`); if(panel) panel.classList.toggle('active',t===name); if(btn) btn.classList.toggle('active',t===name); }); }
 function pilotageIdentityHtml(a){ const code=getCodeGaia(a)||'—'; const annee=getAnnee(a)||'—'; const struct=getStructures(a).join(', ')||'—'; const modal=getModalite(a)||'—'; const publics=getPublics(a).join(', ')||'—'; return `<div class="identity-grid"><div class="identity-item"><span class="identity-label">Année</span><span class="identity-value">${esc(annee)}</span></div><div class="identity-item"><span class="identity-label">Code GAIA</span><span class="identity-value">${esc(code)}</span></div><div class="identity-item"><span class="identity-label">Structure</span><span class="identity-value">${esc(struct)}</span></div><div class="identity-item"><span class="identity-label">Modalité</span><span class="identity-value">${esc(modal)}</span></div><div class="identity-item"><span class="identity-label">Publics</span><span class="identity-value">${esc(publics)}</span></div></div>`; }
 function pilotageRefsFormHtml(a){ const respIds=getResponsableSuiviIds(a); const chef=getChefferieId(a); return `<div class="pilotage-form"><div class="mfield full"><label>Responsables du suivi</label><div class="responsable-checks" id="p-responsable-suivi-list">${optionsResponsablesSuivi(respIds)}</div></div><div class="mfield"><label>Chefferie</label><select id="p-chefferie"><option value="">—</option>${optionsChefferie(chef)}</select></div></div><div class="btn-row"><span class="msg" id="msg-pilotage-refs"></span><button class="btn btn-primary" onclick="savePilotageRefs()">Enregistrer les responsabilités</button></div>`; }
-function optionsResponsablesSuivi(selectedIds=[]){ const selectedSet=new Set((selectedIds||[]).map(String)); return suiviContactRows(selectedIds).map(r=>`<label class="responsable-check" title="${esc(contactLabel(r))}"><input type="checkbox" class="p-responsable-suivi" value="${r.id}"${selectedSet.has(String(r.id))?' checked':''}>${esc(contactLabel(r))}</label>`).join('') || '<div class="help">Aucun contact Dgesco A3-1 trouvé.</div>'; }
+function optionsResponsablesSuivi(selectedIds=[]){ const selectedSet=new Set((selectedIds||[]).map(String)); return suiviContactRows(selectedIds).map(r=>{ const active=selectedSet.has(String(r.id)); return `<label class="responsable-check${active?' active':''}" title="${esc(contactLabel(r))}"><input type="checkbox" class="p-responsable-suivi" value="${r.id}"${active?' checked':''} onchange="this.closest('.responsable-check')?.classList.toggle('active', this.checked)">${esc(contactLabel(r))}</label>`; }).join('') || '<div class="help">Aucun contact Dgesco A3-1 trouvé.</div>'; }
 function optionsContacts(selected){ return CONTACT_ROWS.map(r=>`<option value="${r.id}"${String(r.id)===String(selected)?' selected':''}>${esc(contactLabel(r))}</option>`).join(''); }
 function optionsChefferie(selected){ return CHEFFERIE_ROWS.map(r=>`<option value="${r.id}"${String(r.id)===String(selected)?' selected':''}>${esc(chefferieLabel(r))}</option>`).join(''); }
 function optionsStatus(selectedLabel){ return Object.entries(STATUS_MAP).map(([id,label])=>`<option value="${esc(label)}"${label===selectedLabel?' selected':''}>${esc(label)}</option>`).join(''); }
@@ -690,9 +690,9 @@ async function savePilotageRefs(){
     // Mise à jour locale immédiate : on évite de reconstruire la modale à partir
     // d'un état Grist encore en cours de propagation, ce qui obligeait parfois
     // à enregistrer deux fois pour voir la valeur sélectionnée.
-    Object.assign(CURRENT_ACTION, fields);
+    Object.assign(CURRENT_ACTION, fields, {Responsable_suivi_ids: respIds});
     const idx=ALL.findIndex(a=>String(a.id)===String(CURRENT_ACTION.id));
-    if(idx>=0) Object.assign(ALL[idx], fields);
+    if(idx>=0) Object.assign(ALL[idx], fields, {Responsable_suivi_ids: respIds});
 
     // Les cases restent sur les valeurs choisies et la carte est recalculée
     // depuis les valeurs locales déjà mises à jour.
@@ -724,9 +724,9 @@ async function saveAvancement(){
   });
   try{
     await grist.docApi.applyUserActions([['UpdateRecord', ACTION_TABLE, CURRENT_ACTION.id, fields]]);
-    Object.assign(CURRENT_ACTION, fields);
+    Object.assign(CURRENT_ACTION, fields, {Responsable_suivi_ids: respIds});
     const idx=ALL.findIndex(a=>String(a.id)===String(CURRENT_ACTION.id));
-    if(idx>=0) Object.assign(ALL[idx], fields);
+    if(idx>=0) Object.assign(ALL[idx], fields, {Responsable_suivi_ids: respIds});
     if(msg){ msg.textContent='✓ Pilotage enregistré'; msg.className='msg ok'; }
     applyFilters();
     buildModal();
