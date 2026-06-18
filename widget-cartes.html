@@ -8,7 +8,7 @@
 <!-- Version v43 : ajout contact par Nom, Prénom, Email avec colonnes Contacts robustes -->
 <!-- Version v31 : écriture prudente des références Structure et Modalité -->
 <!-- Version v33 : dirty-fields tracking to avoid reference corruption -->
-<!-- Version v63 : labels références corrigés + responsables de suivi actifs -->
+<!-- Version v64 : labels références corrigés + responsables de suivi actifs depuis Responsable_suivi_ids -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -726,7 +726,7 @@ html, body {
 </div>
 
 <script>
-console.info('[widget-cartes] v63 labels références corrigés + responsables de suivi actifs chargé');
+console.info('[widget-cartes] v64 labels références + responsables de suivi ids chargé');
 
 // ── Données ──────────────────────────────────────────────────────────────
 let ALL = [], FILTERED = [];
@@ -734,7 +734,7 @@ let VOLET_MAP = {}, AXE_MAP = {}, ACTION_AXE_MAP = {}, STRUCT_MAP = {}, MODAL_MA
 let ANNEE_ID_TO_LABEL = {}, ANNEE_LABEL_TO_ID = {}, ANNEE_OPTIONS = [];
 let STATUT_ID_TO_LABEL = {}, STATUT_LABEL_TO_ID = {}, STATUT_OPTIONS = [];
 let DEGRE_ID_TO_LABEL = {}, DEGRE_LABEL_TO_ID = {}, DEGRE_OPTIONS = [];
-let CONTACT_LABEL_TO_ID = {}, CONTACT_OPTIONS = [], RESPONSABLE_SUIVI_OPTIONS = [];
+let CONTACT_LABEL_TO_ID = {}, CONTACT_ID_BY_NORM_LABEL = {}, CONTACT_OPTIONS = [], RESPONSABLE_SUIVI_OPTIONS = [];
 let CONTACT_COLS = { nomPrenom: 'Nom Prénom', nom: 'NOM', prenom: 'PRENOM', email: 'Email', structure: 'Structure' };
 let DEGREE_ACTION_COL = 'Degre';
 let CONTACT_ACTION_COL = 'Contacts';
@@ -1050,40 +1050,122 @@ function stripContactEmail(label) {
   return String(label || '').replace(/<[^>]+>/g, '').trim();
 }
 
-function getResponsableSuiviValue(action) {
-  if (!action) return '';
-  const keys = [
-    'Responsable_suivi', 'Responsables_suivi', 'responsable_suivi', 'responsables_suivi',
-    'Responsable suivi', 'Responsables suivi', 'Responsable du suivi', 'Responsables du suivi',
-    'Responsable_suivi_ids'
-  ];
-  for (const k of keys) {
-    if (Object.prototype.hasOwnProperty.call(action, k) &&
-        action[k] !== undefined && action[k] !== null && action[k] !== '') {
-      return action[k];
-    }
-  }
-  return '';
+function normContactLabel(s) {
+  return String(s || '')
+    .replace(/<[^>]+>/g, '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
-function responsableSuiviIdsFromValue(value) {
-  return asList(value).map(v => {
-    const raw = String(v || '').trim();
-    if (/^\d+$/.test(raw) && CONT_MAP[raw]) return raw;
-    const label = contactValue(v);
-    if (CONTACT_LABEL_TO_ID[label]) return CONTACT_LABEL_TO_ID[label];
-    if (CONTACT_LABEL_TO_ID[raw]) return CONTACT_LABEL_TO_ID[raw];
-    const withoutEmail = raw.replace(/<[^>]+>/g, '').trim();
-    if (CONTACT_LABEL_TO_ID[withoutEmail]) return CONTACT_LABEL_TO_ID[withoutEmail];
-    const emailMatch = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
-    if (emailMatch && CONTACT_LABEL_TO_ID[emailMatch[0].toLowerCase()]) return CONTACT_LABEL_TO_ID[emailMatch[0].toLowerCase()];
-    if (emailMatch && CONTACT_LABEL_TO_ID[emailMatch[0]]) return CONTACT_LABEL_TO_ID[emailMatch[0]];
-    return '';
-  }).filter(Boolean);
+function labelToContactId(label) {
+  const raw = String(label || '').trim();
+  if (!raw) return '';
+  const clean = stripContactEmail(raw);
+  const emailMatch = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return CONTACT_LABEL_TO_ID[raw]
+      || CONTACT_LABEL_TO_ID[clean]
+      || CONTACT_ID_BY_NORM_LABEL[normContactLabel(clean)]
+      || (emailMatch ? CONTACT_LABEL_TO_ID[emailMatch[0]] : '')
+      || (emailMatch ? CONTACT_LABEL_TO_ID[emailMatch[0].toLowerCase()] : '')
+      || '';
+}
+
+function addResponsableIdsFromRaw(raw, ids) {
+  const push = id => {
+    const key = String(id || '').trim();
+    if (/^\d+$/.test(key) && CONT_MAP[key]) ids.add(key);
+  };
+
+  const walk = v => {
+    if (v === null || v === undefined || v === '' || v === 'L' || v === 'R') return;
+
+    if (Array.isArray(v)) {
+      if (v[0] === 'L') {
+        v.slice(1).forEach(walk);
+        return;
+      }
+      if (v[0] === 'R') {
+        const candidates = v.slice(1).filter(x => /^\d+$/.test(String(x)));
+        if (candidates.length) push(candidates[candidates.length - 1]);
+        return;
+      }
+      v.forEach(walk);
+      return;
+    }
+
+    if (typeof v === 'object') {
+      const row = v.rowId ?? v.row_id ?? v.recordId ?? v.record_id ?? v.ref ?? v.id;
+      if (row !== undefined && row !== null) {
+        push(row);
+        return;
+      }
+      if (v.value !== undefined) {
+        walk(v.value);
+        return;
+      }
+      if (v.label !== undefined) {
+        push(labelToContactId(v.label));
+        return;
+      }
+      return;
+    }
+
+    if (typeof v === 'number') {
+      push(v);
+      return;
+    }
+
+    const rawText = String(v).trim();
+    if (/^\d+$/.test(rawText)) {
+      push(rawText);
+      return;
+    }
+
+    const bracketId = rawText.match(/\[(\d+)\]$/) || rawText.match(/(?:^|[,;:])\s*(\d+)\s*$/);
+    if (bracketId) {
+      push(bracketId[1]);
+      return;
+    }
+
+    push(labelToContactId(rawText));
+  };
+
+  walk(raw);
+}
+
+function getResponsableSuiviIds(action) {
+  const ids = new Set();
+
+  // Lecture prioritaire des colonnes formule exposant les $id,
+  // notamment Responsable_suivi_ids. On ne dépend pas d'un seul nom exact.
+  Object.entries(action || {}).forEach(([key, value]) => {
+    const k = String(key || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+    if (k.includes('responsable') && k.includes('suivi') && k.includes('id')) {
+      addResponsableIdsFromRaw(value, ids);
+    }
+  });
+
+  // Lecture directe de la colonne Références multiples, au cas où Grist
+  // renvoie déjà les ids, des objets référence ou des libellés affichés.
+  Object.entries(action || {}).forEach(([key, value]) => {
+    const k = String(key || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+    if (k.includes('responsable') && k.includes('suivi') && !k.includes('id')) {
+      addResponsableIdsFromRaw(value, ids);
+    }
+  });
+
+  return [...ids];
 }
 
 function responsableSuiviValues(action) {
-  return responsableSuiviIdsFromValue(getResponsableSuiviValue(action))
+  return getResponsableSuiviIds(action)
     .map(id => stripContactEmail(CONT_MAP[id] || contactValue(id)))
     .filter(Boolean);
 }
@@ -1440,7 +1522,7 @@ grist.onRecords(async (records) => {
       await new Promise(r => setTimeout(r, 100));
       attempts++;
     }
-    const [volets, axes, actionsAxes, structs, modals, contacts, publics, degres, annees, statuts, lieux, sessions] = await Promise.all([
+    const [volets, axes, actionsAxes, structs, modals, contacts, publics, degres, annees, statuts, lieux, sessions, actionsFull] = await Promise.all([
       grist.docApi.fetchTable('Volets'),
       grist.docApi.fetchTable('Axes'),
       grist.docApi.fetchTable('Actions_axes').catch(() => ({id:[], 'N° action':[], libelle:[], Libelle:[], 'Libellé':[]})),
@@ -1453,6 +1535,7 @@ grist.onRecords(async (records) => {
       grist.docApi.fetchTable('Statut').catch(() => ({id:[], statut:[]})),
       grist.docApi.fetchTable('Lieux').catch(() => ({id:[], Site:[]})),
       grist.docApi.fetchTable('Journal_sessions').catch(() => ({id:[]})),
+      grist.docApi.fetchTable('Actions_formation').catch(() => ({id:[]})),
     ]);
 
     const toRows = t => (t.id||[]).map((id,i) => {
@@ -1481,6 +1564,7 @@ grist.onRecords(async (records) => {
     const stRows = toRows(statuts);
     const lRows = toRows(lieux);
     SESSION_ROWS = toRows(sessions);
+    const actionFullRows = toRows(actionsFull);
 
     VOLET_MAP  = Object.fromEntries(vRows.map(r => [String(r.id), tableLabelFromRow(r, 'Volets')]).filter(([,v]) => v));
     AXE_MAP    = Object.fromEntries(aRows.map(r => [String(r.id), tableLabelFromRow(r, 'Axes')]).filter(([,v]) => v));
@@ -1508,6 +1592,7 @@ grist.onRecords(async (records) => {
       .sort((a,b)=>a.label.localeCompare(b.label,'fr', {numeric:true}));
     CONT_MAP   = {};
     CONTACT_LABEL_TO_ID = {};
+    CONTACT_ID_BY_NORM_LABEL = {};
     CONTACT_OPTIONS = [];
     RESPONSABLE_SUIVI_OPTIONS = [];
     cRows.forEach(r => {
@@ -1518,11 +1603,13 @@ grist.onRecords(async (records) => {
       CONT_MAP[id] = label;
       CONT_MAP[label] = label;
       CONTACT_LABEL_TO_ID[label] = id;
+      CONTACT_ID_BY_NORM_LABEL[normContactLabel(label)] = id;
 
       const displayName = label.replace(/<[^>]+>/g, '').trim();
       if (displayName) {
         CONT_MAP[displayName] = label;
         CONTACT_LABEL_TO_ID[displayName] = id;
+        CONTACT_ID_BY_NORM_LABEL[normContactLabel(displayName)] = id;
       }
 
       if (email) {
@@ -1606,7 +1693,13 @@ grist.onRecords(async (records) => {
     window.DEGRE_VALUES = DEGRE_OPTIONS.map(o => o.label);
     console.info('[widget-cartes] Options Degres', DEGRE_OPTIONS);
 
-    ALL = records.map(r => ({ id: r.id, ...r }));
+    const incomingRows = records.map(r => ({ id: r.id, ...r }));
+    const fullById = Object.fromEntries(actionFullRows.map(r => [String(r.id), r]));
+    // Comme dans widget-journal_actions : fusion des lignes complètes de
+    // Actions_formation avec la vue courante pour conserver Responsable_suivi_ids.
+    ALL = incomingRows.length
+      ? incomingRows.map(r => ({ ...r, ...(fullById[String(r.id)] || {}) }))
+      : actionFullRows;
     ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'], ACTION_COL);
     DEGREE_ACTION_COL = detectExistingColumn(ALL, ['Degre', 'Degres', 'id_degre', 'id_degres', 'Degré', 'Degrés', 'degre', 'degres'], DEGREE_ACTION_COL);
     // Colonne réelle dans Actions_formation : Contacts.
@@ -2041,7 +2134,7 @@ function buildModalForm(a) {
     ? RESPONSABLE_SUIVI_OPTIONS
     : contactOptions.filter(o => String(o.value || '') && String(o.value || '') !== '');
   const selectedContactIds = contactIdsFromValue(getContactsValue(a));
-  const selectedResponsableSuiviIds = responsableSuiviIdsFromValue(getResponsableSuiviValue(a));
+  const selectedResponsableSuiviIds = getResponsableSuiviIds(a);
   const selectedPublics = publicValues(a);
   const publicOptions = (window.PUBLIC_VALUES && window.PUBLIC_VALUES.length)
     ? window.PUBLIC_VALUES
