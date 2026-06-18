@@ -114,9 +114,9 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
     <input type="text" id="f-search" placeholder="Rechercher une action copil…" oninput="applyFilters()">
   </div>
   <button class="btn-download" onclick="downloadSelectionCsv()" title="Télécharger les actions affichées au format CSV">Télécharger CSV</button>
-  <div class="tb-sel"><select id="f-annee" onchange="applyFilters()"><option value="">Années</option></select></div>
-  <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Structures</option></select></div>
-  <div class="tb-sel"><select id="f-referent" onchange="applyFilters()"><option value="">Référents</option></select></div>
+  <div class="tb-sel"><select id="f-annee" onchange="applyFilters()"><option value="">Toutes les années</option></select></div>
+  <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Toutes les structures</option></select></div>
+  <div class="tb-sel"><select id="f-referent" onchange="applyFilters()"><option value="">Tous les référents</option></select></div>
   <span class="count" id="count">–</span>
 </div>
 <div class="grid-wrap"><div class="grid" id="grid"></div></div>
@@ -143,9 +143,9 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 <script>
 console.info('[widget-cartes-copil] version v9 année visible sur les cartes chargé');
 let ALL = [], FILTERED = [], CURRENT_ACTION = null, selectedId = null;
-let CONTACT_ROWS = [], STRUCT_ROWS = [], REFERENT_ROWS = [], ANNEE_ROWS = [], LIEU_ROWS = [], SESSION_ROWS = [];
+let CONTACT_ROWS = [], STRUCT_ROWS = [], REFERENT_ROWS = [], ANNEE_ROWS = [];
 let CONTACT_MAP = {}, CONTACT_ID_BY_LABEL = {}, CONTACT_ID_BY_EMAIL = {};
-let STRUCT_VALUES = [], ANNEE_VALUES = [], ANNEE_MAP = {}, PUBLIC_MAP = {}, MODAL_MAP = {}, STRUCT_MAP = {}, LIEU_MAP = {};
+let STRUCT_VALUES = [], ANNEE_VALUES = [], ANNEE_MAP = {}, PUBLIC_MAP = {}, MODAL_MAP = {}, STRUCT_MAP = {};
 let SELECTED_REFERENT_IDS = new Set();
 const ACTION_TABLE = 'Actions_formation';
 const CONTACT_TABLE = 'Contacts';
@@ -313,65 +313,23 @@ function getModalite(a){ return labelForRef(a.id_modalite || a.Modalite || a['Mo
 function getStructures(a){ return labelsForList(a.id_structure || a.Structure || a['Structure porteuse'], STRUCT_MAP); }
 function getPublics(a){ return labelsForList(a.id_publics || a.Publics || a['Publics cibles'], PUBLIC_MAP); }
 
-function lieuLabelFromRow(r){
-  return firstText(r, ['Site','site','Lieu','lieu','Nom','nom','libelle','Libelle','Libellé','label','Label']);
-}
-
-function refId(v){
-  if(v === null || v === undefined || v === '') return '';
-  if(Array.isArray(v)){
-    const arr = v[0] === 'L' ? v.slice(1) : v;
-    if(arr[0] === 'R') return String(arr[arr.length - 1] || '');
-    return String(arr[arr.length - 1] || '');
-  }
-  if(typeof v === 'object') return String(v.id || v.rowId || v.row_id || '');
-  return String(v || '').trim();
-}
-
-function lieuValue(v){
-  const key = refId(v);
-  if(!key) return '';
-  return LIEU_MAP[key] || LIEU_MAP[String(v || '').trim()] || String(v || '').trim();
-}
-
-function sessionActionId(s){
-  return refId(s.Action || s.action || s.id_action || s.Action_formation || s.actions_formation);
-}
-
-function getLieux(a){
-  const actionId = String(a && a.id || '');
-  const lieux = [];
-  SESSION_ROWS
-    .filter(s => String(sessionActionId(s)) === actionId)
-    .forEach(s => {
-      for(let i = 0; i < 10; i++){
-        const label = lieuValue(s[`Lieu${i}`]);
-        if(label) lieux.push(label);
-      }
-    });
-  return [...new Set(lieux)];
-}
-
 async function loadData(records){
   showLoader(true);
   try{
     let attempts=0; while(!grist.docApi && attempts<20){ await new Promise(r=>setTimeout(r,100)); attempts++; }
-    const [contacts, structures, publics, modalites, referents, annees, lieux, sessions] = await Promise.all([
+    const [contacts, structures, publics, modalites, referents, annees] = await Promise.all([
       grist.docApi.fetchTable('Contacts').catch(()=>({id:[]})),
       grist.docApi.fetchTable('Structures').catch(()=>({id:[]})),
       grist.docApi.fetchTable('Publics').catch(()=>({id:[]})),
       grist.docApi.fetchTable('Modalites').catch(()=>({id:[]})),
       fetchTableSmart(['Referents','Référents','Referent','Référent']).catch(()=>({id:[]})),
       grist.docApi.fetchTable('Annees').catch(()=>({id:[]})),
-      grist.docApi.fetchTable('Lieux').catch(()=>({id:[]})),
-      grist.docApi.fetchTable('Journal_sessions').catch(()=>({id:[]})),
     ]);
-    CONTACT_ROWS = toRows(contacts); STRUCT_ROWS = toRows(structures); REFERENT_ROWS = toRows(referents); ANNEE_ROWS = toRows(annees); LIEU_ROWS = toRows(lieux); SESSION_ROWS = toRows(sessions);
+    CONTACT_ROWS = toRows(contacts); STRUCT_ROWS = toRows(structures); REFERENT_ROWS = toRows(referents); ANNEE_ROWS = toRows(annees);
     rebuildContactIndexes();
     STRUCT_MAP = Object.fromEntries(STRUCT_ROWS.map(r=>[r.id, structureLabelFromRow(r)]).filter(([,v])=>v));
     PUBLIC_MAP = Object.fromEntries(toRows(publics).map(r=>[r.id, publicLabelFromRow(r)]).filter(([,v])=>v));
     MODAL_MAP = Object.fromEntries(toRows(modalites).map(r=>[r.id, simpleLabelFromRow(r)]).filter(([,v])=>v));
-    LIEU_MAP = Object.fromEntries(LIEU_ROWS.map(r=>[r.id, lieuLabelFromRow(r)]).filter(([,v])=>v));
     STRUCT_VALUES = [...new Set(STRUCT_ROWS.map(structureLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
     ANNEE_MAP = Object.fromEntries(ANNEE_ROWS.map(r=>[r.id, anneeLabelFromRow(r)]).filter(([,v])=>v));
     ANNEE_VALUES = [...new Set(ANNEE_ROWS.map(anneeLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
@@ -412,8 +370,6 @@ function buildFilterControls(){
   const anneeValues = [...new Set((ANNEE_VALUES.length ? ANNEE_VALUES : ALL.map(getAnnee))
     .map(s => String(s||'').trim()).filter(Boolean))]
     .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
-  const lieuValues = [...new Set(ALL.flatMap(a => getLieux(a)).map(s => String(s||'').trim()).filter(Boolean))]
-  .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
 
   // Le filtre Référents liste les valeurs de la table Referents.
   // Si la table contient une référence vers Contacts, la valeur est convertie en "Nom Prénom".
@@ -435,10 +391,9 @@ function buildFilterControls(){
   }
 
   console.info('[widget-cartes-copil] Options filtre Référents :', referentValues);
-  fillSelect('f-annee', anneeValues, 'Années');
-  fillSelect('f-struct', structureValues, 'Structures');
-  fillSelect('f-lieu', lieuValues, 'Lieux');
-  fillSelect('f-referent', referentValues, 'Référents');
+  fillSelect('f-annee', anneeValues, 'Toutes les années');
+  fillSelect('f-struct', structureValues, 'Toutes les structures');
+  fillSelect('f-referent', referentValues, 'Tous les référents');
 }
 
 
@@ -502,19 +457,16 @@ function applyFilters(){
   const q = document.getElementById('f-search').value.toLowerCase().trim();
   const anneeFilter = document.getElementById('f-annee')?.value || '';
   const structFilter = document.getElementById('f-struct')?.value || '';
-  const lieuFilter = document.getElementById('f-lieu')?.value || '';
   const referentFilter = document.getElementById('f-referent')?.value || '';
 
   FILTERED = ALL.filter(a=>{
     const annee = getAnnee(a);
     const structs = getStructures(a);
-    const lieux = getLieux(a);
     const referentIds = referentIdsFromAction(a).map(id=>String(id));
     const referentLabels = referentIds.map(id=>CONTACT_MAP[id]).filter(Boolean);
 
     if(anneeFilter && annee !== anneeFilter) return false;
     if(structFilter && !structs.includes(structFilter)) return false;
-    if(lieuFilter && !lieux.includes(lieuFilter)) return false;
     if(referentFilter && !referentLabels.includes(String(referentFilter))) return false;
 
     if(!q) return true;
@@ -528,7 +480,6 @@ function applyFilters(){
       getAnnee(a),
       getModalite(a),
       structs.join(' '),
-      lieux.join(' '),
       getPublics(a).join(' '),
       referentLabels.join(' ')
     ].join(' ').toLowerCase();
