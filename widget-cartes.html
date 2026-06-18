@@ -8,7 +8,7 @@
 <!-- Version v43 : ajout contact par Nom, Prénom, Email avec colonnes Contacts robustes -->
 <!-- Version v31 : écriture prudente des références Structure et Modalité -->
 <!-- Version v33 : dirty-fields tracking to avoid reference corruption -->
-<!-- Version v62 : responsables de suivi lus depuis Actions_formation complète + Responsable_suivi_ids -->
+<!-- Version v63 : labels références corrigés + responsables de suivi actifs -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -726,7 +726,7 @@ html, body {
 </div>
 
 <script>
-console.info('[widget-cartes] v62 responsables de suivi actifs depuis Actions_formation complète chargé');
+console.info('[widget-cartes] v63 labels références corrigés + responsables de suivi actifs chargé');
 
 // ── Données ──────────────────────────────────────────────────────────────
 let ALL = [], FILTERED = [];
@@ -734,7 +734,7 @@ let VOLET_MAP = {}, AXE_MAP = {}, ACTION_AXE_MAP = {}, STRUCT_MAP = {}, MODAL_MA
 let ANNEE_ID_TO_LABEL = {}, ANNEE_LABEL_TO_ID = {}, ANNEE_OPTIONS = [];
 let STATUT_ID_TO_LABEL = {}, STATUT_LABEL_TO_ID = {}, STATUT_OPTIONS = [];
 let DEGRE_ID_TO_LABEL = {}, DEGRE_LABEL_TO_ID = {}, DEGRE_OPTIONS = [];
-let CONTACT_LABEL_TO_ID = {}, CONTACT_ID_BY_NORM_LABEL = {}, CONTACT_OPTIONS = [], RESPONSABLE_SUIVI_OPTIONS = [];
+let CONTACT_LABEL_TO_ID = {}, CONTACT_OPTIONS = [], RESPONSABLE_SUIVI_OPTIONS = [];
 let CONTACT_COLS = { nomPrenom: 'Nom Prénom', nom: 'NOM', prenom: 'PRENOM', email: 'Email', structure: 'Structure' };
 let DEGREE_ACTION_COL = 'Degre';
 let CONTACT_ACTION_COL = 'Contacts';
@@ -780,6 +780,77 @@ function firstText(row, keys) {
 
 function resolveList(ids, map) {
   return asList(ids).map(i => map[i] || map[String(i)] || String(i||'').trim()).filter(Boolean);
+}
+
+function firstAnyText(row, keys) {
+  for (const k of keys) {
+    const v = row && row[k];
+    if (v !== undefined && v !== null && String(v).trim()) return String(v).trim();
+  }
+  return '';
+}
+
+function fallbackRowLabel(row, preferredKeys) {
+  const first = firstAnyText(row, preferredKeys);
+  if (first) return first;
+  for (const [k, v] of Object.entries(row || {})) {
+    if (k === 'id') continue;
+    if (v !== undefined && v !== null && String(v).trim()) return String(v).trim();
+  }
+  return '';
+}
+
+function tableLabelFromRow(row, tableName) {
+  if (tableName === 'Axes') {
+    return fallbackRowLabel(row, ['libelle', 'Libelle', 'Libellé', 'Axe', 'axe', 'Nom', 'nom', 'label', 'Label']);
+  }
+  if (tableName === 'Volets') {
+    return fallbackRowLabel(row, ['libelle', 'Libelle', 'Libellé', 'Volet', 'volet', 'Nom', 'nom', 'label', 'Label']);
+  }
+  if (tableName === 'Structures') {
+    return fallbackRowLabel(row, ['Code', 'code', 'Structure', 'structure', 'Nom', 'nom', 'libelle', 'Libelle', 'Libellé', 'label', 'Label']);
+  }
+  if (tableName === 'Modalites') {
+    return fallbackRowLabel(row, ['libelle', 'Libelle', 'Libellé', 'Modalite', 'Modalité', 'modalite', 'modalité', 'Nom', 'nom', 'label', 'Label']);
+  }
+  return fallbackRowLabel(row, ['libelle', 'Libelle', 'Libellé', 'Nom', 'nom', 'label', 'Label']);
+}
+
+function refToken(raw, expectedTable) {
+  if (raw === null || raw === undefined || raw === '') return '';
+  const ref = typeof refRowIdFromValue === 'function' ? refRowIdFromValue(raw, expectedTable) : '';
+  if (ref) return ref;
+  if (Array.isArray(raw)) {
+    if (raw[0] === 'L') return '';
+    if (raw[0] === 'R') {
+      const nums = raw.filter(x => /^\d+$/.test(String(x || '').trim()));
+      return nums.length ? String(nums[nums.length - 1]) : '';
+    }
+    if (raw.length === 1) return refToken(raw[0], expectedTable);
+    const nums = raw.filter(x => /^\d+$/.test(String(x || '').trim()));
+    return nums.length ? String(nums[nums.length - 1]) : '';
+  }
+  if (typeof raw === 'object') {
+    const row = raw.rowId ?? raw.row_id ?? raw.recordId ?? raw.record_id ?? raw.ref ?? raw.value ?? raw.id;
+    if (row !== undefined && row !== null && String(row).trim()) return String(row).trim();
+    const label = raw.label ?? raw.display ?? raw.name;
+    return label !== undefined && label !== null ? String(label).trim() : '';
+  }
+  return String(raw || '').trim();
+}
+
+function labelsFromRefValue(raw, map, expectedTable) {
+  if (raw === null || raw === undefined || raw === '') return [];
+  if (Array.isArray(raw) && raw[0] === 'L') {
+    return raw.slice(1).flatMap(v => labelsFromRefValue(v, map, expectedTable)).filter(Boolean);
+  }
+  const token = refToken(raw, expectedTable);
+  if (!token) return [];
+  return [map[token] || map[String(token)] || String(token).trim()].filter(Boolean);
+}
+
+function labelFromRefValue(raw, map, expectedTable) {
+  return labelsFromRefValue(raw, map, expectedTable).join(', ');
 }
 
 function publicLabelFromRow(r) {
@@ -979,122 +1050,40 @@ function stripContactEmail(label) {
   return String(label || '').replace(/<[^>]+>/g, '').trim();
 }
 
-function normContactLabel(s) {
-  return String(s || '')
-    .replace(/<[^>]+>/g, '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+function getResponsableSuiviValue(action) {
+  if (!action) return '';
+  const keys = [
+    'Responsable_suivi', 'Responsables_suivi', 'responsable_suivi', 'responsables_suivi',
+    'Responsable suivi', 'Responsables suivi', 'Responsable du suivi', 'Responsables du suivi',
+    'Responsable_suivi_ids'
+  ];
+  for (const k of keys) {
+    if (Object.prototype.hasOwnProperty.call(action, k) &&
+        action[k] !== undefined && action[k] !== null && action[k] !== '') {
+      return action[k];
+    }
+  }
+  return '';
 }
 
-function labelToContactId(label) {
-  const raw = String(label || '').trim();
-  if (!raw) return '';
-  const clean = stripContactEmail(raw);
-  const emailMatch = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
-  return CONTACT_LABEL_TO_ID[raw]
-      || CONTACT_LABEL_TO_ID[clean]
-      || CONTACT_ID_BY_NORM_LABEL[normContactLabel(clean)]
-      || (emailMatch ? CONTACT_LABEL_TO_ID[emailMatch[0]] : '')
-      || (emailMatch ? CONTACT_LABEL_TO_ID[emailMatch[0].toLowerCase()] : '')
-      || '';
-}
-
-function addResponsableIdsFromRaw(raw, ids) {
-  const push = id => {
-    const key = String(id || '').trim();
-    if (/^\d+$/.test(key) && CONT_MAP[key]) ids.add(key);
-  };
-
-  const walk = v => {
-    if (v === null || v === undefined || v === '' || v === 'L' || v === 'R') return;
-
-    if (Array.isArray(v)) {
-      if (v[0] === 'L') {
-        v.slice(1).forEach(walk);
-        return;
-      }
-      if (v[0] === 'R') {
-        const candidates = v.slice(1).filter(x => /^\d+$/.test(String(x)));
-        if (candidates.length) push(candidates[candidates.length - 1]);
-        return;
-      }
-      v.forEach(walk);
-      return;
-    }
-
-    if (typeof v === 'object') {
-      const row = v.rowId ?? v.row_id ?? v.recordId ?? v.record_id ?? v.ref ?? v.id;
-      if (row !== undefined && row !== null) {
-        push(row);
-        return;
-      }
-      if (v.value !== undefined) {
-        walk(v.value);
-        return;
-      }
-      if (v.label !== undefined) {
-        push(labelToContactId(v.label));
-        return;
-      }
-      return;
-    }
-
-    if (typeof v === 'number') {
-      push(v);
-      return;
-    }
-
-    const rawText = String(v).trim();
-    if (/^\d+$/.test(rawText)) {
-      push(rawText);
-      return;
-    }
-
-    const bracketId = rawText.match(/\[(\d+)\]$/) || rawText.match(/(?:^|[,;:])\s*(\d+)\s*$/);
-    if (bracketId) {
-      push(bracketId[1]);
-      return;
-    }
-
-    push(labelToContactId(rawText));
-  };
-
-  walk(raw);
-}
-
-function getResponsableSuiviIds(action) {
-  const ids = new Set();
-
-  // Lecture prioritaire des colonnes formule exposant les $id,
-  // notamment Responsable_suivi_ids. On ne dépend pas d'un seul nom exact.
-  Object.entries(action || {}).forEach(([key, value]) => {
-    const k = String(key || '')
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '');
-    if (k.includes('responsable') && k.includes('suivi') && k.includes('id')) {
-      addResponsableIdsFromRaw(value, ids);
-    }
-  });
-
-  // Lecture directe de la colonne Références multiples, au cas où Grist
-  // renvoie déjà les ids, des objets référence ou des libellés affichés.
-  Object.entries(action || {}).forEach(([key, value]) => {
-    const k = String(key || '')
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '');
-    if (k.includes('responsable') && k.includes('suivi') && !k.includes('id')) {
-      addResponsableIdsFromRaw(value, ids);
-    }
-  });
-
-  return [...ids];
+function responsableSuiviIdsFromValue(value) {
+  return asList(value).map(v => {
+    const raw = String(v || '').trim();
+    if (/^\d+$/.test(raw) && CONT_MAP[raw]) return raw;
+    const label = contactValue(v);
+    if (CONTACT_LABEL_TO_ID[label]) return CONTACT_LABEL_TO_ID[label];
+    if (CONTACT_LABEL_TO_ID[raw]) return CONTACT_LABEL_TO_ID[raw];
+    const withoutEmail = raw.replace(/<[^>]+>/g, '').trim();
+    if (CONTACT_LABEL_TO_ID[withoutEmail]) return CONTACT_LABEL_TO_ID[withoutEmail];
+    const emailMatch = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    if (emailMatch && CONTACT_LABEL_TO_ID[emailMatch[0].toLowerCase()]) return CONTACT_LABEL_TO_ID[emailMatch[0].toLowerCase()];
+    if (emailMatch && CONTACT_LABEL_TO_ID[emailMatch[0]]) return CONTACT_LABEL_TO_ID[emailMatch[0]];
+    return '';
+  }).filter(Boolean);
 }
 
 function responsableSuiviValues(action) {
-  return getResponsableSuiviIds(action)
+  return responsableSuiviIdsFromValue(getResponsableSuiviValue(action))
     .map(id => stripContactEmail(CONT_MAP[id] || contactValue(id)))
     .filter(Boolean);
 }
@@ -1451,7 +1440,7 @@ grist.onRecords(async (records) => {
       await new Promise(r => setTimeout(r, 100));
       attempts++;
     }
-    const [volets, axes, actionsAxes, structs, modals, contacts, publics, degres, annees, statuts, lieux, sessions, actionsFull] = await Promise.all([
+    const [volets, axes, actionsAxes, structs, modals, contacts, publics, degres, annees, statuts, lieux, sessions] = await Promise.all([
       grist.docApi.fetchTable('Volets'),
       grist.docApi.fetchTable('Axes'),
       grist.docApi.fetchTable('Actions_axes').catch(() => ({id:[], 'N° action':[], libelle:[], Libelle:[], 'Libellé':[]})),
@@ -1464,7 +1453,6 @@ grist.onRecords(async (records) => {
       grist.docApi.fetchTable('Statut').catch(() => ({id:[], statut:[]})),
       grist.docApi.fetchTable('Lieux').catch(() => ({id:[], Site:[]})),
       grist.docApi.fetchTable('Journal_sessions').catch(() => ({id:[]})),
-      grist.docApi.fetchTable('Actions_formation').catch(() => ({id:[]})),
     ]);
 
     const toRows = t => (t.id||[]).map((id,i) => {
@@ -1493,17 +1481,16 @@ grist.onRecords(async (records) => {
     const stRows = toRows(statuts);
     const lRows = toRows(lieux);
     SESSION_ROWS = toRows(sessions);
-    const actionFullRows = toRows(actionsFull);
 
-    VOLET_MAP  = Object.fromEntries(vRows.map(r => [r.id, r.libelle || r.Libelle || r['Libellé'] || '']));
-    AXE_MAP    = Object.fromEntries(aRows.map(r => [r.id, r.libelle || r.Libelle || r['Libellé'] || '']));
+    VOLET_MAP  = Object.fromEntries(vRows.map(r => [String(r.id), tableLabelFromRow(r, 'Volets')]).filter(([,v]) => v));
+    AXE_MAP    = Object.fromEntries(aRows.map(r => [String(r.id), tableLabelFromRow(r, 'Axes')]).filter(([,v]) => v));
     ACTION_AXE_MAP = buildActionAxeMap(aaRows);
     ACTION_AXE_OPTIONS = aaRows
       .map(r => ({ value: actionAxeValueFromRow(r), label: actionAxeLabelFromRow(r) }))
       .filter(o => o.value && o.label)
       .sort((a,b) => String(a.value).localeCompare(String(b.value), 'fr', {numeric:true}));
-    STRUCT_MAP = Object.fromEntries(sRows.map(r => [r.id, r.code || r.Code || r.libelle || r.Libelle || r['Libellé'] || '']));
-    MODAL_MAP  = Object.fromEntries(mRows.map(r => [r.id, r.libelle || r.Libelle || r['Libellé'] || '']));
+    STRUCT_MAP = Object.fromEntries(sRows.map(r => [String(r.id), tableLabelFromRow(r, 'Structures')]).filter(([,v]) => v));
+    MODAL_MAP  = Object.fromEntries(mRows.map(r => [String(r.id), tableLabelFromRow(r, 'Modalites')]).filter(([,v]) => v));
     ANNEE_ID_TO_LABEL = Object.fromEntries(eRows
       .map(r => [String(r.id), anneeLabelFromRow(r)])
       .filter(([,v]) => v));
@@ -1521,7 +1508,6 @@ grist.onRecords(async (records) => {
       .sort((a,b)=>a.label.localeCompare(b.label,'fr', {numeric:true}));
     CONT_MAP   = {};
     CONTACT_LABEL_TO_ID = {};
-    CONTACT_ID_BY_NORM_LABEL = {};
     CONTACT_OPTIONS = [];
     RESPONSABLE_SUIVI_OPTIONS = [];
     cRows.forEach(r => {
@@ -1532,13 +1518,11 @@ grist.onRecords(async (records) => {
       CONT_MAP[id] = label;
       CONT_MAP[label] = label;
       CONTACT_LABEL_TO_ID[label] = id;
-      CONTACT_ID_BY_NORM_LABEL[normContactLabel(label)] = id;
 
       const displayName = label.replace(/<[^>]+>/g, '').trim();
       if (displayName) {
         CONT_MAP[displayName] = label;
         CONTACT_LABEL_TO_ID[displayName] = id;
-        CONTACT_ID_BY_NORM_LABEL[normContactLabel(displayName)] = id;
       }
 
       if (email) {
@@ -1559,8 +1543,8 @@ grist.onRecords(async (records) => {
     LIEU_MAP = Object.fromEntries(lRows.map(r => [r.id, lieuLabelFromRow(r)]).filter(([,v]) => v));
     window.LIEU_VALUES = [...new Set(lRows.map(lieuLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
 
-    window.VOLET_VALUES  = [...new Set(vRows.map(r => r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
-    window.AXE_VALUES    = [...new Set(aRows.map(r => r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
+    window.VOLET_VALUES  = [...new Set(vRows.map(r => tableLabelFromRow(r, 'Volets')).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr')); 
+    window.AXE_VALUES    = [...new Set(aRows.map(r => tableLabelFromRow(r, 'Axes')).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr')); 
     window.ANNEE_VALUES  = [...new Set(ANNEE_OPTIONS.map(o => o.label).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr', {numeric:true}));
     // Statut : table technique attendue = Statut ; colonne de libellé attendue = statut.
     STATUT_ID_TO_LABEL = Object.fromEntries(stRows
@@ -1589,8 +1573,8 @@ grist.onRecords(async (records) => {
       STATUT_MAP = Object.assign({}, STATUT_ID_TO_LABEL, {'validé':'validé','reporté':'reporté','annulé':'annulé'});
     }
     window.STATUT_VALUES = STATUT_OPTIONS.map(o => o.label);
-    window.STRUCT_VALUES = [...new Set(sRows.map(r => r.code || r.Code || r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
-    window.MODAL_VALUES  = [...new Set(mRows.map(r => r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
+    window.STRUCT_VALUES = [...new Set(sRows.map(r => tableLabelFromRow(r, 'Structures')).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr')); 
+    window.MODAL_VALUES  = [...new Set(mRows.map(r => tableLabelFromRow(r, 'Modalites')).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr')); 
     window.CONTACT_VALUES = CONTACT_OPTIONS.map(o => o.label);
     window.PUBLIC_VALUES = [...new Set(pRows.map(publicLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
 
@@ -1622,15 +1606,7 @@ grist.onRecords(async (records) => {
     window.DEGRE_VALUES = DEGRE_OPTIONS.map(o => o.label);
     console.info('[widget-cartes] Options Degres', DEGRE_OPTIONS);
 
-    const incomingRows = records.map(r => ({ id: r.id, ...r }));
-    const fullById = Object.fromEntries(actionFullRows.map(r => [String(r.id), r]));
-    // Comme dans widget-journal_actions : on fusionne les lignes complètes de
-    // Actions_formation avec les lignes de la vue courante. Cela permet de lire
-    // Responsable_suivi et Responsable_suivi_ids même si la vue Grist courante
-    // ne transmet pas ces colonnes au widget.
-    ALL = incomingRows.length
-      ? incomingRows.map(r => ({ ...r, ...(fullById[String(r.id)] || {}) }))
-      : actionFullRows;
+    ALL = records.map(r => ({ id: r.id, ...r }));
     ACTION_COL = detectExistingColumn(ALL, ['id_action_axe', 'id_action_referentiel', 'action_axe', 'action_referentiel', 'Action_referentiel', 'Action_r_f_rentiel', 'Action_référentiel', 'Action (référentiel)'], ACTION_COL);
     DEGREE_ACTION_COL = detectExistingColumn(ALL, ['Degre', 'Degres', 'id_degre', 'id_degres', 'Degré', 'Degrés', 'degre', 'degres'], DEGREE_ACTION_COL);
     // Colonne réelle dans Actions_formation : Contacts.
@@ -1664,16 +1640,13 @@ grist.onRecord((record, mappings) => {
 // → on alimente les filtres depuis les valeurs réelles des enregistrements
 function buildFilters() {
   fillAnneeFilter();
-  fillFromData('f-axe',    r => r.id_axe);
-  fillFromData('f-volet',  r => r.id_volet);
-  fillFromData('f-struct',  r => {
-    const v = r.id_structure;
-    return Array.isArray(v) ? v : [v];
-  }, true);
+  fillFromData('f-axe',    r => labelFromRefValue(r.id_axe, AXE_MAP, 'Axes')); 
+  fillFromData('f-volet',  r => labelFromRefValue(r.id_volet, VOLET_MAP, 'Volets')); 
+  fillFromData('f-struct',  r => labelsFromRefValue(r.id_structure, STRUCT_MAP, 'Structures'), true);
   fillFromData('f-lieu', r => lieuValues(r), true);
   fillFromData('f-public', r => publicValues(r), true);
   fillDegreFilter();
-  fillFromData('f-modal',  r => r.id_modalite);
+  fillFromData('f-modal',  r => labelFromRefValue(r.id_modalite, MODAL_MAP, 'Modalites')); 
   safeFillStatutFilter();
 }
 
@@ -1863,11 +1836,11 @@ function applyFilters() {
 
   FILTERED = ALL.filter(a => {
     if (!matchList(anneeLabelFromValue(getAnnee(a)).split(',').map(s => s.trim()).filter(Boolean), annee)) return false;
-    if (!matchText(a.id_axe,      axe))    return false;
-    if (!matchText(a.id_volet,    volet))   return false;
-    if (!matchText(a.id_modalite, modal))   return false;
+    if (!matchText(labelFromRefValue(a.id_axe, AXE_MAP, 'Axes'), axe)) return false;
+    if (!matchText(labelFromRefValue(a.id_volet, VOLET_MAP, 'Volets'), volet)) return false;
+    if (!matchText(labelFromRefValue(a.id_modalite, MODAL_MAP, 'Modalites'), modal)) return false;
     if (!matchText(statutLabelFromValue(getStatut(a)), statut)) return false;
-    if (!matchList(a.id_structure, struct)) return false;
+    if (!matchList(labelsFromRefValue(a.id_structure, STRUCT_MAP, 'Structures'), struct)) return false;
     if (!matchList(lieuValues(a), lieu)) return false;
     if (!matchList(publicValues(a), pub))   return false;
     if (!matchAny(degreLabelFromValue(getDegre(a)).split(',').map(s => s.trim()).filter(Boolean), degres)) return false;
@@ -1880,7 +1853,11 @@ function applyFilters() {
                   !lieuValues(a).join(' ').toLowerCase().includes(search) &&
                   !contactValues(a).join(' ').toLowerCase().includes(search) &&
                   !responsableSuiviValues(a).join(' ').toLowerCase().includes(search) &&
-                  !actionAxeDisplay(getActionAxe(a)).toLowerCase().includes(search)) return false;
+                  !actionAxeDisplay(getActionAxe(a)).toLowerCase().includes(search) &&
+                  !labelFromRefValue(a.id_axe, AXE_MAP, 'Axes').toLowerCase().includes(search) &&
+                  !labelFromRefValue(a.id_volet, VOLET_MAP, 'Volets').toLowerCase().includes(search) &&
+                  !labelFromRefValue(a.id_modalite, MODAL_MAP, 'Modalites').toLowerCase().includes(search) &&
+                  !labelsFromRefValue(a.id_structure, STRUCT_MAP, 'Structures').join(' ').toLowerCase().includes(search)) return false;
     return true;
   });
 
@@ -1971,7 +1948,7 @@ function openModal(action, mode='edit') {
   const isNew = mode === 'create';
 
   // Bande de couleur
-  const axeLib = String(action.id_axe||'');
+  const axeLib = labelFromRefValue(action.id_axe, AXE_MAP, 'Axes');
   const num    = axeNum(axeLib);
   document.getElementById('modal-band').className =
     'modal-band ' + (BANDS[num]||'').replace('band-','band-');
@@ -1980,7 +1957,7 @@ function openModal(action, mode='edit') {
   document.getElementById('modal-title').textContent = isNew ? 'Inscrire une action' : (action.titre||'Sans titre');
   document.getElementById('modal-meta').textContent  = isNew
     ? 'Nouvelle action de formation'
-    : [action.id_volet, action.id_axe, action.periode].filter(Boolean).join(' · ');
+    : [labelFromRefValue(action.id_volet, VOLET_MAP, 'Volets'), labelFromRefValue(action.id_axe, AXE_MAP, 'Axes'), action.periode].filter(Boolean).join(' · ');
 
   // Construire le formulaire
   buildModalForm(action);
@@ -2039,6 +2016,8 @@ function buildModalForm(a) {
     return [...new Set(vals.map(v => String(v||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr', {numeric:true}));
   };
   const selected = (cur, v) => String(cur||'').trim() === String(v||'').trim() ? ' selected' : '';
+  const selectedMapped = (cur, v, map, tableName) => labelFromRefValue(cur, map, tableName) === String(v||'').trim() ? ' selected' : '';
+  const checkedMapped = (cur, v, map, tableName) => labelsFromRefValue(cur, map, tableName).map(x=>String(x||'').trim()).includes(String(v||'').trim()) ? ' checked' : '';
   const selectedAction = (cur, opt) => {
     const refId = actionAxeRefId(cur);
     const curText = cleanActionAxeKey(cur);
@@ -2062,7 +2041,7 @@ function buildModalForm(a) {
     ? RESPONSABLE_SUIVI_OPTIONS
     : contactOptions.filter(o => String(o.value || '') && String(o.value || '') !== '');
   const selectedContactIds = contactIdsFromValue(getContactsValue(a));
-  const selectedResponsableSuiviIds = getResponsableSuiviIds(a);
+  const selectedResponsableSuiviIds = responsableSuiviIdsFromValue(getResponsableSuiviValue(a));
   const selectedPublics = publicValues(a);
   const publicOptions = (window.PUBLIC_VALUES && window.PUBLIC_VALUES.length)
     ? window.PUBLIC_VALUES
@@ -2096,7 +2075,7 @@ function buildModalForm(a) {
         <label>Volet</label>
         <select id="m-volet">
           <option value="">—</option>
-          ${voletOptions.map(v=>`<option value="${esc(v)}"${selected(a.id_volet, v)}>${esc(v)}</option>`).join('')}
+          ${voletOptions.map(v=>`<option value="${esc(v)}"${selectedMapped(a.id_volet, v, VOLET_MAP, 'Volets')}>${esc(v)}</option>`).join('')}
         </select>
       </div>
     </div>
@@ -2105,7 +2084,7 @@ function buildModalForm(a) {
         <label>Axe</label>
         <select id="m-axe">
           <option value="">—</option>
-          ${axeOptions.map(v=>`<option value="${esc(v)}"${selected(a.id_axe, v)}>${esc(v)}</option>`).join('')}
+          ${axeOptions.map(v=>`<option value="${esc(v)}"${selectedMapped(a.id_axe, v, AXE_MAP, 'Axes')}>${esc(v)}</option>`).join('')}
         </select>
       </div>
       <div class="mfield">
@@ -2131,7 +2110,7 @@ function buildModalForm(a) {
         <label>Modalité</label>
         <select id="m-modal">
           <option value="">—</option>
-          ${modalOptions.map(v=>`<option value="${esc(v)}"${selected(a.id_modalite, v)}>${esc(v)}</option>`).join('')}
+          ${modalOptions.map(v=>`<option value="${esc(v)}"${selectedMapped(a.id_modalite, v, MODAL_MAP, 'Modalites')}>${esc(v)}</option>`).join('')}
         </select>
       </div>
       <div class="mfield">
@@ -2167,7 +2146,7 @@ function buildModalForm(a) {
     <div class="mfield full">
       <label>Structure(s) porteuse(s)</label>
       <div class="mchips" id="m-structs">
-        ${structOptions.map(v => `<label class="mchip"><input type="checkbox" value="${esc(v)}"${checked(asList(a.id_structure), v)}><span>${esc(v)}</span></label>`).join('')}
+        ${structOptions.map(v => `<label class="mchip"><input type="checkbox" value="${esc(v)}"${checkedMapped(a.id_structure, v, STRUCT_MAP, 'Structures')}><span>${esc(v)}</span></label>`).join('')}
       </div>
     </div>
     <div class="mfield full">
@@ -2279,7 +2258,6 @@ function readFormSnapshot() {
     fin: String(byId('m-fin')?.value || '').trim(),
     structures: checkedValues('#m-structs'),
     contacts: checkedValues('#m-contacts'),
-    responsables_suivi: checkedValues('#m-responsables-suivi'),
     new_contact_prenom: String(byId('m-new-contact-prenom')?.value || '').trim(),
     new_contact_nom: String(byId('m-new-contact-nom')?.value || '').trim(),
     new_contact_email: String(byId('m-new-contact-email')?.value || '').trim(),
@@ -2626,13 +2604,13 @@ function render() {
 
   const html = FILTERED.map((a, i) => {
     // Grist envoie directement les textes résolus
-    const axeLib   = String(a.id_axe    ||'');
-    const voletLib = String(a.id_volet  ||'');
+    const axeLib   = labelFromRefValue(a.id_axe, AXE_MAP, 'Axes');
+    const voletLib = labelFromRefValue(a.id_volet, VOLET_MAP, 'Volets');
     const anneeLib = anneeLabelFromValue(getAnnee(a));
-    const modalLib = String(a.id_modalite||'');
+    const modalLib = labelFromRefValue(a.id_modalite, MODAL_MAP, 'Modalites');
     const num      = axeNum(axeLib);
     const band     = BANDS[num] || '';
-    const structs  = asList(a.id_structure).filter(Boolean);
+    const structs  = labelsFromRefValue(a.id_structure, STRUCT_MAP, 'Structures');
     const publics  = publicValues(a);
     const contacts = contactValues(a);
     const responsablesSuivi = responsableSuiviValues(a);
