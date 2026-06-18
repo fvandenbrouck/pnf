@@ -8,7 +8,7 @@
 <!-- Version v43 : ajout contact par Nom, Prénom, Email avec colonnes Contacts robustes -->
 <!-- Version v31 : écriture prudente des références Structure et Modalité -->
 <!-- Version v33 : dirty-fields tracking to avoid reference corruption -->
-<!-- Version v58 : remplace JS_realise par heures_formation -->
+<!-- Version v60 : dissocie Contacts et Responsables de suivi -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -678,17 +678,18 @@ html, body {
     </svg>
     <input type="text" id="f-search" placeholder="Rechercher titre, objectif…" oninput="applyFilters()">
   </div>
-  <div class="tb-sel"><select id="f-annee" onchange="applyFilters()"><option value="">Toutes les années</option></select></div>
-  <div class="tb-sel"><select id="f-axe"    onchange="applyFilters()"><option value="">Tous les axes</option></select></div>
-  <div class="tb-sel"><select id="f-volet"  onchange="applyFilters()"><option value="">Tous les volets</option></select></div>
-  <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Toutes les structures</option></select></div>
-  <div class="tb-sel"><select id="f-public" onchange="applyFilters()"><option value="">Tous les publics</option></select></div>
+  <div class="tb-sel"><select id="f-annee" onchange="applyFilters()"><option value="">Années</option></select></div>
+  <div class="tb-sel"><select id="f-axe"    onchange="applyFilters()"><option value="">Axes</option></select></div>
+  <div class="tb-sel"><select id="f-volet"  onchange="applyFilters()"><option value="">Volets</option></select></div>
+  <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Structures</option></select></div>
+  <div class="tb-sel"><select id="f-lieu" onchange="applyFilters()"><option value="">Lieux</option></select></div>
+  <div class="tb-sel"><select id="f-public" onchange="applyFilters()"><option value="">Publics</option></select></div>
   <div class="tb-multi">
-    <button type="button" id="f-degre-btn" class="multi-btn" onclick="toggleMultiMenu(event, 'f-degre-menu')">Tous les degrés</button>
+    <button type="button" id="f-degre-btn" class="multi-btn" onclick="toggleMultiMenu(event, 'f-degre-menu')">Degrés</button>
     <div id="f-degre-menu" class="multi-menu hidden"></div>
   </div>
-  <div class="tb-sel"><select id="f-modal"  onchange="applyFilters()"><option value="">Toutes les modalités</option></select></div>
-  <div class="tb-sel"><select id="f-statut" onchange="applyFilters()"><option value="">Tous les statuts</option></select></div>
+  <div class="tb-sel"><select id="f-modal"  onchange="applyFilters()"><option value="">Modalités</option></select></div>
+  <div class="tb-sel"><select id="f-statut" onchange="applyFilters()"><option value="">Statuts</option></select></div>
   <button class="btn-reset" onclick="resetFilters()" title="Réinitialiser">✕</button>
   <button class="btn-export" onclick="downloadFilteredCSV()">Télécharger CSV</button>
   <button class="btn-new" onclick="openCreateModal()">+ Inscrire une action</button>
@@ -725,11 +726,11 @@ html, body {
 </div>
 
 <script>
-console.info('[widget-cartes] v58 heures_formation chargé');
+console.info('[widget-cartes] v60 contacts et responsables de suivi dissociés chargé');
 
 // ── Données ──────────────────────────────────────────────────────────────
 let ALL = [], FILTERED = [];
-let VOLET_MAP = {}, AXE_MAP = {}, ACTION_AXE_MAP = {}, STRUCT_MAP = {}, MODAL_MAP = {}, CONT_MAP = {}, PUBLIC_MAP = {}, ANNEE_MAP = {}, STATUT_MAP = {};
+let VOLET_MAP = {}, AXE_MAP = {}, ACTION_AXE_MAP = {}, STRUCT_MAP = {}, MODAL_MAP = {}, CONT_MAP = {}, PUBLIC_MAP = {}, ANNEE_MAP = {}, STATUT_MAP = {}, LIEU_MAP = {};
 let ANNEE_ID_TO_LABEL = {}, ANNEE_LABEL_TO_ID = {}, ANNEE_OPTIONS = [];
 let STATUT_ID_TO_LABEL = {}, STATUT_LABEL_TO_ID = {}, STATUT_OPTIONS = [];
 let DEGRE_ID_TO_LABEL = {}, DEGRE_LABEL_TO_ID = {}, DEGRE_OPTIONS = [];
@@ -737,9 +738,11 @@ let CONTACT_LABEL_TO_ID = {}, CONTACT_OPTIONS = [];
 let CONTACT_COLS = { nomPrenom: 'Nom Prénom', nom: 'NOM', prenom: 'PRENOM', email: 'Email', structure: 'Structure' };
 let DEGREE_ACTION_COL = 'Degre';
 let CONTACT_ACTION_COL = 'Contacts';
+let RESPONSABLE_SUIVI_ACTION_COL = 'Responsable_suivi';
 let STATUT_ACTION_COL = 'Statut';
 let ACTION_AXE_OPTIONS = [];
 let ACTION_COL = 'id_action_referentiel';
+let SESSION_ROWS = [];
 let selectedId = null;
 
 const ROMAN = {I:1,II:2,III:3,IV:4,V:5,VI:6,VII:7,VIII:8};
@@ -877,6 +880,45 @@ function publicValues(action) {
   return asList(action && action.id_publics).map(publicValue).filter(Boolean);
 }
 
+function lieuLabelFromRow(r) {
+  return firstText(r, ['Site', 'site', 'Lieu', 'lieu', 'Nom', 'nom', 'libelle', 'Libelle', 'Libellé', 'label', 'Label']);
+}
+
+function refId(v) {
+  if (v === null || v === undefined || v === '') return '';
+  if (Array.isArray(v)) {
+    const arr = v[0] === 'L' ? v.slice(1) : v;
+    if (arr[0] === 'R') return String(arr[arr.length - 1] || '');
+    return String(arr[arr.length - 1] || '');
+  }
+  if (typeof v === 'object') return String(v.id || v.rowId || v.row_id || '');
+  return String(v || '').trim();
+}
+
+function lieuValue(v) {
+  const key = refId(v);
+  if (!key) return '';
+  return LIEU_MAP[key] || LIEU_MAP[String(v || '').trim()] || String(v || '').trim();
+}
+
+function sessionActionId(s) {
+  return refId(s.Action || s.action || s.id_action || s.Action_formation || s.actions_formation);
+}
+
+function lieuValues(action) {
+  const actionId = String(action && action.id || '');
+  const lieux = [];
+  SESSION_ROWS
+    .filter(s => String(sessionActionId(s)) === actionId)
+    .forEach(s => {
+      for (let i = 0; i < 10; i++) {
+        const label = lieuValue(s[`Lieu${i}`]);
+        if (label) lieux.push(label);
+      }
+    });
+  return [...new Set(lieux)];
+}
+
 function contactLabelFromRow(r) {
   // Table Contacts attendue : Nom Prénom / NOM / PRENOM / Email / Structure.
   // On privilégie la colonne d'affichage « Nom Prénom », puis on reconstruit depuis PRENOM + NOM.
@@ -919,6 +961,48 @@ function getContactsValue(action) {
 function contactValues(action) {
   return asList(getContactsValue(action))
     .map(contactValue)
+    .filter(Boolean);
+}
+
+function stripContactEmail(label) {
+  return String(label || '').replace(/<[^>]+>/g, '').trim();
+}
+
+function getResponsableSuiviValue(action) {
+  if (!action) return '';
+  const keys = [
+    'Responsable_suivi', 'Responsables_suivi', 'responsable_suivi', 'responsables_suivi',
+    'Responsable suivi', 'Responsables suivi', 'Responsable du suivi', 'Responsables du suivi',
+    'Responsable_suivi_ids'
+  ];
+  for (const k of keys) {
+    if (Object.prototype.hasOwnProperty.call(action, k) &&
+        action[k] !== undefined && action[k] !== null && action[k] !== '') {
+      return action[k];
+    }
+  }
+  return '';
+}
+
+function responsableSuiviIdsFromValue(value) {
+  return asList(value).map(v => {
+    const raw = String(v || '').trim();
+    if (/^\d+$/.test(raw) && CONT_MAP[raw]) return raw;
+    const label = contactValue(v);
+    if (CONTACT_LABEL_TO_ID[label]) return CONTACT_LABEL_TO_ID[label];
+    if (CONTACT_LABEL_TO_ID[raw]) return CONTACT_LABEL_TO_ID[raw];
+    const withoutEmail = raw.replace(/<[^>]+>/g, '').trim();
+    if (CONTACT_LABEL_TO_ID[withoutEmail]) return CONTACT_LABEL_TO_ID[withoutEmail];
+    const emailMatch = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    if (emailMatch && CONTACT_LABEL_TO_ID[emailMatch[0].toLowerCase()]) return CONTACT_LABEL_TO_ID[emailMatch[0].toLowerCase()];
+    if (emailMatch && CONTACT_LABEL_TO_ID[emailMatch[0]]) return CONTACT_LABEL_TO_ID[emailMatch[0]];
+    return '';
+  }).filter(Boolean);
+}
+
+function responsableSuiviValues(action) {
+  return responsableSuiviIdsFromValue(getResponsableSuiviValue(action))
+    .map(id => stripContactEmail(CONT_MAP[id] || contactValue(id)))
     .filter(Boolean);
 }
 
@@ -1270,7 +1354,7 @@ grist.onRecords(async (records) => {
       await new Promise(r => setTimeout(r, 100));
       attempts++;
     }
-    const [volets, axes, actionsAxes, structs, modals, contacts, publics, degres, annees, statuts] = await Promise.all([
+    const [volets, axes, actionsAxes, structs, modals, contacts, publics, degres, annees, statuts, lieux, sessions] = await Promise.all([
       grist.docApi.fetchTable('Volets'),
       grist.docApi.fetchTable('Axes'),
       grist.docApi.fetchTable('Actions_axes').catch(() => ({id:[], 'N° action':[], libelle:[], Libelle:[], 'Libellé':[]})),
@@ -1281,6 +1365,8 @@ grist.onRecords(async (records) => {
       grist.docApi.fetchTable('Degres').catch(() => ({id:[], nom_deg:[]})),
       grist.docApi.fetchTable('Annees').catch(() => ({id:[], Annee_scolaire:[], libelle:[], Libelle:[], 'Libellé':[]})),
       grist.docApi.fetchTable('Statut').catch(() => ({id:[], statut:[]})),
+      grist.docApi.fetchTable('Lieux').catch(() => ({id:[], Site:[]})),
+      grist.docApi.fetchTable('Journal_sessions').catch(() => ({id:[]})),
     ]);
 
     const toRows = t => (t.id||[]).map((id,i) => {
@@ -1307,6 +1393,8 @@ grist.onRecords(async (records) => {
     const dRows = toRows(degres);
     const eRows = toRows(annees);
     const stRows = toRows(statuts);
+    const lRows = toRows(lieux);
+    SESSION_ROWS = toRows(sessions);
 
     VOLET_MAP  = Object.fromEntries(vRows.map(r => [r.id, r.libelle || r.Libelle || r['Libellé'] || '']));
     AXE_MAP    = Object.fromEntries(aRows.map(r => [r.id, r.libelle || r.Libelle || r['Libellé'] || '']));
@@ -1361,6 +1449,8 @@ grist.onRecords(async (records) => {
     });
     CONTACT_OPTIONS.sort((a,b)=>a.label.localeCompare(b.label,'fr'));
     PUBLIC_MAP = Object.fromEntries(pRows.map(r => [r.id, publicLabelFromRow(r)]).filter(([,v]) => v));
+    LIEU_MAP = Object.fromEntries(lRows.map(r => [r.id, lieuLabelFromRow(r)]).filter(([,v]) => v));
+    window.LIEU_VALUES = [...new Set(lRows.map(lieuLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
 
     window.VOLET_VALUES  = [...new Set(vRows.map(r => r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
     window.AXE_VALUES    = [...new Set(aRows.map(r => r.libelle || r.Libelle || r['Libellé'] || '').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
@@ -1465,6 +1555,7 @@ function buildFilters() {
     const v = r.id_structure;
     return Array.isArray(v) ? v : [v];
   }, true);
+  fillFromData('f-lieu', r => lieuValues(r), true);
   fillFromData('f-public', r => publicValues(r), true);
   fillDegreFilter();
   fillFromData('f-modal',  r => r.id_modalite);
@@ -1598,7 +1689,7 @@ function updateDegreFilterButton() {
   if (!btn) return;
   const vals = getSelectedDegreFilters();
   if (!vals.length) {
-    btn.textContent = 'Tous les degrés';
+    btn.textContent = 'Degrés';
   } else if (vals.length === 1) {
     btn.textContent = vals[0];
   } else {
@@ -1632,6 +1723,7 @@ function applyFilters() {
   const axe    = document.getElementById('f-axe').value;
   const volet  = document.getElementById('f-volet').value;
   const struct = document.getElementById('f-struct').value;
+  const lieu   = document.getElementById('f-lieu') ? document.getElementById('f-lieu').value : '';
   const pub    = document.getElementById('f-public').value;
   const degres = getSelectedDegreFilters();
   const modal  = document.getElementById('f-modal').value;
@@ -1661,6 +1753,7 @@ function applyFilters() {
     if (!matchText(a.id_modalite, modal))   return false;
     if (!matchText(statutLabelFromValue(getStatut(a)), statut)) return false;
     if (!matchList(a.id_structure, struct)) return false;
+    if (!matchList(lieuValues(a), lieu)) return false;
     if (!matchList(publicValues(a), pub))   return false;
     if (!matchAny(degreLabelFromValue(getDegre(a)).split(',').map(s => s.trim()).filter(Boolean), degres)) return false;
     if (search && !(a.titre||'').toLowerCase().includes(search) &&
@@ -1669,7 +1762,9 @@ function applyFilters() {
                   !anneeLabelFromValue(getAnnee(a)).toLowerCase().includes(search) &&
                   !statutLabelFromValue(getStatut(a)).toLowerCase().includes(search) &&
                   !publicValues(a).join(' ').toLowerCase().includes(search) &&
+                  !lieuValues(a).join(' ').toLowerCase().includes(search) &&
                   !contactValues(a).join(' ').toLowerCase().includes(search) &&
+                  !responsableSuiviValues(a).join(' ').toLowerCase().includes(search) &&
                   !actionAxeDisplay(getActionAxe(a)).toLowerCase().includes(search)) return false;
     return true;
   });
@@ -1680,7 +1775,7 @@ function applyFilters() {
 }
 
 function resetFilters() {
-  ['f-annee','f-axe','f-volet','f-struct','f-public','f-modal','f-statut'].forEach(id =>
+  ['f-annee','f-axe','f-volet','f-struct','f-lieu','f-public','f-modal','f-statut'].forEach(id =>
     document.getElementById(id).value = '');
   document.querySelectorAll('#f-degre-menu input:checked').forEach(cb => { cb.checked = false; });
   updateDegreFilterButton();
@@ -1849,6 +1944,7 @@ function buildModalForm(a) {
     ? CONTACT_OPTIONS
     : (window.CONTACT_VALUES || []).map(v => ({value: CONTACT_LABEL_TO_ID[v] || v, label: v}));
   const selectedContactIds = contactIdsFromValue(getContactsValue(a));
+  const selectedResponsableSuiviIds = responsableSuiviIdsFromValue(getResponsableSuiviValue(a));
   const selectedPublics = publicValues(a);
   const publicOptions = (window.PUBLIC_VALUES && window.PUBLIC_VALUES.length)
     ? window.PUBLIC_VALUES
@@ -1980,6 +2076,12 @@ function buildModalForm(a) {
       </div>
     </div>
     <div class="mfield full">
+      <label>Responsable(s) de suivi</label>
+      <div class="mchips" id="m-responsables-suivi">
+        ${contactOptions.map(o => `<label class="mchip"><input type="checkbox" value="${esc(o.value)}"${checked(selectedResponsableSuiviIds, o.value)}><span>${esc(stripContactEmail(o.label))}</span></label>`).join('')}
+      </div>
+    </div>
+    <div class="mfield full">
       <label>Publics cibles</label>
       <div class="mchips" id="m-publics">
         ${publicOptions.map(v => `<label class="mchip"><input type="checkbox" value="${esc(v)}"${checked(selectedPublics, v)}><span>${esc(v)}</span></label>`).join('')}
@@ -2033,6 +2135,7 @@ function attachDirtyTracking() {
 
   document.querySelectorAll('#m-structs input').forEach(el => el.addEventListener('change', () => markDirty('structures')));
   document.querySelectorAll('#m-contacts input').forEach(el => el.addEventListener('change', () => markDirty('contacts')));
+  document.querySelectorAll('#m-responsables-suivi input').forEach(el => el.addEventListener('change', () => markDirty('responsables_suivi')));
   ['#m-new-contact-nom', '#m-new-contact-prenom', '#m-new-contact-email', '#m-new-contact-structure'].forEach(sel => {
     const el = document.querySelector(sel);
     if (el) el.addEventListener(sel === '#m-new-contact-structure' ? 'change' : 'input', () => markDirty('contacts'));
@@ -2148,6 +2251,10 @@ async function saveRecord() {
     .map(c=>String(c.value || '').trim())
     .filter(Boolean)
     .filter(v => /^\d+$/.test(v));
+  const responsableSuiviIds = [...document.querySelectorAll('#m-responsables-suivi input:checked')]
+    .map(c=>String(c.value || '').trim())
+    .filter(Boolean)
+    .filter(v => /^\d+$/.test(v));
   const publicLabels = [...document.querySelectorAll('#m-publics input:checked')].map(c=>c.value);
   const degreIds = [...document.querySelectorAll('#m-degres input:checked')]
     .map(c=>String(c.value || '').trim())
@@ -2241,6 +2348,9 @@ async function saveRecord() {
   }
   if (formFieldChanged('contacts', contactIds)) {
     fields[CONTACT_ACTION_COL] = ['L', ...contactIds.map(Number)];
+  }
+  if (formFieldChanged('responsables_suivi', responsableSuiviIds)) {
+    fields[RESPONSABLE_SUIVI_ACTION_COL] = ['L', ...responsableSuiviIds.map(Number)];
   }
   if (formFieldChanged('degres', degreIds)) {
     fields[DEGREE_ACTION_COL] = ['L', ...degreIds.map(Number)];
@@ -2340,6 +2450,7 @@ function downloadFilteredCSV() {
     'statut',
     'publics',
     'contacts',
+    'responsables_suivi',
     'degres',
     'JS_prevision',
     'heures_formation',
@@ -2359,6 +2470,7 @@ function downloadFilteredCSV() {
     statut: statutLabelFromValue(getStatut(a)),
     publics: csvJoinList(publicValues(a)),
     contacts: csvJoinList(contactValues(a)),
+    responsables_suivi: csvJoinList(responsableSuiviValues(a)),
     degres: degreLabelFromValue(getDegre(a)),
     JS_prevision: a.JS_prevision ?? '',
     heures_formation: a.heures_formation ?? '',
@@ -2404,6 +2516,7 @@ function render() {
     const structs  = asList(a.id_structure).filter(Boolean);
     const publics  = publicValues(a);
     const contacts = contactValues(a);
+    const responsablesSuivi = responsableSuiviValues(a);
     const actionAxe = actionAxeDisplay(getActionAxe(a));
     const objectif = (a.objectif||'').replace(/\n/g,' ').trim();
     const periode  = a.periode || '';
@@ -2493,6 +2606,14 @@ function render() {
             <span class="meta-label">Contacts</span>
             <div class="meta-value tags">
               ${contacts.map(c=>`<span class="tag tag-contact">${esc(c)}</span>`).join('')}
+            </div>
+          </div>` : ''}
+
+          ${responsablesSuivi.length ? `
+          <div class="meta-row">
+            <span class="meta-label">Suivi</span>
+            <div class="meta-value tags">
+              ${responsablesSuivi.map(c=>`<span class="tag tag-contact">${esc(c)}</span>`).join('')}
             </div>
           </div>` : ''}
 
