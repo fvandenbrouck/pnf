@@ -197,13 +197,13 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
     <input type="text" id="f-search" placeholder="Rechercher action, compte rendu…" oninput="applyFilters()">
   </div>
-  <div class="tb-sel"><select id="f-annee" onchange="applyFilters()"><option value="">Toutes les années</option></select></div>
-  <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Toutes les structures</option></select></div>
-  <div class="tb-sel"><select id="f-responsable-suivi" onchange="applyFilters()"><option value="">Tous les chargés de suivi</option></select></div>
-  <div class="tb-sel"><select id="f-chefferie" onchange="applyFilters()"><option value="">Toutes les chefferies</option></select></div>
-  <div class="tb-sel"><select id="f-status" onchange="applyFilters()"><option value="">Tous les statuts</option></select></div>
+  <div class="tb-sel"><select id="f-annee" onchange="applyFilters()"><option value="">Années</option></select></div>
+  <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Structures</option></select></div>
+  <div class="tb-sel"><select id="f-responsable-suivi" onchange="applyFilters()"><option value="">Chargés de suivi</option></select></div>
+  <div class="tb-sel"><select id="f-chefferie" onchange="applyFilters()"><option value="">Chefferie</option></select></div>
+  <div class="tb-sel"><select id="f-status" onchange="applyFilters()"><option value="">Statuts</option></select></div>
   <div class="tb-sel"><select id="f-avancement" onchange="applyFilters()">
-    <option value="">Tous les avancements</option>
+    <option value="">Avancement</option>
     <option value="complete">Avancement complet</option>
     <option value="incomplete">À compléter</option>
     <option value="none">Aucun avancement renseigné</option>
@@ -580,6 +580,7 @@ function fillSelect(id, values){ const sel=document.getElementById(id); const cu
 function fillFilters(){
   fillSelect('f-annee', ANNEE_VALUES.length ? ANNEE_VALUES : ALL.map(getAnnee));
   fillSelect('f-struct', ALL.flatMap(getStructures));
+  fillSelect('f-lieu', ALL.flatMap(a => sessionStructuredLieux(getSessionForAction(a.id))));
   fillSelect('f-responsable-suivi', [...CONTACT_SUIVI_ROWS.map(contactLabel), ...ALL.flatMap(getResponsableSuiviLabels)].filter(Boolean));
   fillSelect('f-chefferie', [...CHEFFERIE_ROWS.map(chefferieLabel), ...ALL.map(getChefferieLabel)].filter(Boolean));
   fillSelect('f-status', Object.values(STATUS_MAP));
@@ -587,11 +588,11 @@ function fillFilters(){
 function searchableText(a){ const session=getSessionForAction(a.id); const entries=getJournalForAction(a.id); return [getCodeGaia(a), getTitre(a), getObjectif(a), getAnnee(a), ...getStructures(a), getModalite(a), ...getPublics(a), ...getResponsablesAction(a), getChefferieLabel(a), avancementText(a), sessionNb(session), ...sessionStructuredDates(session), ...sessionStructuredLieux(session), ...sessionStructuredModalites(session), sessionComment(session), ...entries.flatMap(j=>[statusTextFromEntry(j), labelFor(j.Responsable,CONTACT_MAP), j.Compte_rendu, j.Prochaine_etape, formatDateValue(j.Date), formatDateValue(j.Echeance)])].join(' ').toLowerCase(); }
 function applyFilters(){
   const q=document.getElementById('f-search').value.toLowerCase().trim();
-  const annee=document.getElementById('f-annee').value; const struct=document.getElementById('f-struct').value; const respSuivi=document.getElementById('f-responsable-suivi').value; const chef=document.getElementById('f-chefferie').value; const status=document.getElementById('f-status').value; const avancement=document.getElementById('f-avancement').value;
-  FILTERED=ALL.filter(a=>{
+  const annee=document.getElementById('f-annee').value; const struct=document.getElementById('f-struct').value; const lieu=document.getElementById('f-lieu').value; const respSuivi=document.getElementById('f-responsable-suivi').value; const chef=document.getElementById('f-chefferie').value; const status=document.getElementById('f-status').value; const avancement=document.getElementById('f-avancement').value;
     const latest=latestJournal(a.id);
     if(annee && getAnnee(a)!==annee) return false;
     if(struct && !getStructures(a).includes(struct)) return false;
+    if(lieu && !sessionStructuredLieux(getSessionForAction(a.id)).includes(lieu)) return false;
     if(respSuivi && !getResponsableSuiviLabels(a).includes(respSuivi)) return false;
     if(chef && getChefferieLabel(a)!==chef) return false;
     if(status && statusTextFromEntry(latest)!==status) return false;
@@ -601,7 +602,7 @@ function applyFilters(){
   });
   document.getElementById('count').textContent=`${FILTERED.length} action${FILTERED.length>1?'s':''}`; render();
 }
-function resetFilters(){ ['f-annee','f-struct','f-responsable-suivi','f-chefferie','f-status','f-avancement'].forEach(id=>document.getElementById(id).value=''); document.getElementById('f-search').value=''; applyFilters(); }
+function resetFilters(){ ['f-annee','f-struct','f-lieu','f-responsable-suivi','f-chefferie','f-status','f-avancement'].forEach(id=>document.getElementById(id).value=''); document.getElementById('f-search').value=''; applyFilters(); }
 function render(){
   const grid=document.getElementById('grid');
   if(!FILTERED.length){ grid.innerHTML='<div class="empty"><p>Aucune action trouvée</p><span>Modifiez les filtres pour élargir la recherche</span></div>'; return; }

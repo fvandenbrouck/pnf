@@ -459,12 +459,12 @@ html, body {
     </svg>
     <input type="text" id="f-search" placeholder="Rechercher titre, objectif, public…" oninput="applyFilters()">
   </div>
-  <div class="tb-sel"><select id="f-annee"  onchange="applyFilters()"><option value="">Toutes les années</option></select></div>
-  <div class="tb-sel"><select id="f-degre"  onchange="applyFilters()"><option value="">Tous les degrés</option></select></div>
-  <div class="tb-sel"><select id="f-axe"    onchange="applyFilters()"><option value="">Tous les axes</option></select></div>
-  <div class="tb-sel"><select id="f-volet"  onchange="applyFilters()"><option value="">Tous les volets</option></select></div>
-  <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Toutes les structures</option></select></div>
-  <div class="tb-sel"><select id="f-public" onchange="applyFilters()"><option value="">Tous les publics</option></select></div>
+  <div class="tb-sel"><select id="f-annee"  onchange="applyFilters()"><option value="">Années</option></select></div>
+  <div class="tb-sel"><select id="f-degre"  onchange="applyFilters()"><option value="">Degrés</option></select></div>
+  <div class="tb-sel"><select id="f-axe"    onchange="applyFilters()"><option value="">Axes</option></select></div>
+  <div class="tb-sel"><select id="f-volet"  onchange="applyFilters()"><option value="">Volets</option></select></div>
+  <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Structures</option></select></div>
+  <div class="tb-sel"><select id="f-public" onchange="applyFilters()"><option value="">Publics</option></select></div>
   <button class="btn-reset" onclick="resetFilters()" title="Réinitialiser">✕</button>
   <span class="count" id="count">–</span>
 </div>
@@ -500,6 +500,8 @@ let PUBLIC_MAP = {};
 let PUBLIC_VALUES = [];
 let DEGRE_MAP = {};
 let DEGRE_VALUES = [];
+let LIEU_MAP = {};
+let SESSION_ROWS = [];
 const DEFAULT_DEGRE_ROWS = [
   {id: 1, nom_deg: 'Premier degré'},
   {id: 2, nom_deg: 'Second degré'}
@@ -614,6 +616,87 @@ function publicValue(v) {
 
 function publicList(a) {
   return asList(get(a, 'id_publics')).map(publicValue).flatMap(v => String(v || '').split(/\s*,\s*/)).map(v => v.trim()).filter(Boolean);
+}
+
+function tableToRows(table) {
+  return (table && table.id || []).map((id, i) => {
+    const row = { id };
+    Object.keys(table || {}).forEach(k => { if (k !== 'id') row[k] = table[k][i]; });
+    return row;
+  });
+}
+
+function lieuLabelFromRow(r) {
+  return firstRowText(r, ['Site', 'site', 'Lieu', 'lieu', 'Nom', 'nom', 'libelle', 'Libelle', 'Libellé', 'label', 'Label']);
+}
+
+function buildLieuMap(rows) {
+  const entries = [];
+  const add = (k, label) => {
+    const key = String(k ?? '').trim();
+    if (key && label) entries.push([key, label]);
+  };
+  rows.forEach(r => {
+    const label = lieuLabelFromRow(r);
+    if (!label) return;
+    add(r.id, label);
+    add(`Lieux[${r.id}]`, label);
+    add(`R,Lieux,${r.id}`, label);
+    add(label, label);
+  });
+  return Object.fromEntries(entries);
+}
+
+function refId(v) {
+  if (v === null || v === undefined || v === '') return '';
+  if (Array.isArray(v)) {
+    const arr = v[0] === 'L' ? v.slice(1) : v;
+    if (arr[0] === 'R') return String(arr[arr.length - 1] || '');
+    return String(arr[arr.length - 1] || '');
+  }
+  if (typeof v === 'object') return String(v.id || v.rowId || v.row_id || '');
+  return String(v || '').trim();
+}
+
+function lieuValue(v) {
+  const key = refId(v);
+  if (!key) return '';
+  return LIEU_MAP[key] || LIEU_MAP[String(v || '').trim()] || String(v || '').trim();
+}
+
+function sessionActionId(s) {
+  return refId(s.Action || s.action || s.id_action || s.Action_formation || s.actions_formation);
+}
+
+function lieuxForAction(a) {
+  const actionId = String(a && a.id || '');
+  const lieux = [];
+  SESSION_ROWS
+    .filter(s => String(sessionActionId(s)) === actionId)
+    .forEach(s => {
+      for (let i = 0; i < 10; i++) {
+        const label = lieuValue(s[`Lieu${i}`]);
+        if (label) lieux.push(label);
+      }
+    });
+  return [...new Set(lieux)];
+}
+
+async function loadLieuxSessionsIfAllowed() {
+  try {
+    if (!grist.docApi || !grist.docApi.fetchTable) return;
+    const [lieux, sessions] = await Promise.all([
+      grist.docApi.fetchTable('Lieux').catch(() => ({id:[]})),
+      grist.docApi.fetchTable('Journal_sessions').catch(() => ({id:[]}))
+    ]);
+    const lieuRows = tableToRows(lieux);
+    LIEU_MAP = buildLieuMap(lieuRows);
+    SESSION_ROWS = tableToRows(sessions);
+  } catch(e) {
+    console.warn('Lieux ou Journal_sessions non accessibles : filtre Lieu désactivé.', e);
+    LIEU_MAP = {};
+    SESSION_ROWS = [];
+  }
 }
 
 
@@ -917,6 +1000,7 @@ function buildFilters() {
   fillFilter('f-axe',    a => [firstText(a, 'id_axe')]);
   fillFilter('f-volet',  a => [firstText(a, 'id_volet')]);
   fillFilter('f-struct', a => listText(a, 'id_structure'));
+  fillFilterFromValues('f-lieu', [...new Set(ALL.flatMap(lieuxForAction))]);
   fillFilterFromValues('f-public', PUBLIC_VALUES.length ? PUBLIC_VALUES : [...new Set(ALL.flatMap(publicList))]);
 }
 
@@ -987,6 +1071,7 @@ function searchableText(a) {
     firstText(a, 'id_modalite'),
     firstText(a, 'annee_scolaire'),
     ...listText(a, 'id_structure'),
+    ...lieuxForAction(a),
     ...publicList(a),
     ...degreList(a)
   ].join(' ').toLowerCase();
@@ -998,6 +1083,7 @@ function applyFilters() {
   const axe    = document.getElementById('f-axe').value;
   const volet  = document.getElementById('f-volet').value;
   const struct = document.getElementById('f-struct').value;
+  const lieu   = document.getElementById('f-lieu').value;
   const pub    = document.getElementById('f-public').value;
   const search = document.getElementById('f-search').value.toLowerCase().trim();
 
@@ -1007,6 +1093,7 @@ function applyFilters() {
     if (!matchText(firstText(a, 'id_axe'), axe)) return false;
     if (!matchText(firstText(a, 'id_volet'), volet)) return false;
     if (!matchList(listText(a, 'id_structure'), struct)) return false;
+    if (!matchList(lieuxForAction(a), lieu)) return false;
     if (!matchList(publicList(a), pub)) return false;
     if (search && !searchableText(a).includes(search)) return false;
     return true;
@@ -1017,7 +1104,7 @@ function applyFilters() {
 }
 
 function resetFilters() {
-  ['f-annee', 'f-degre', 'f-axe', 'f-volet', 'f-struct', 'f-public'].forEach(id => document.getElementById(id).value = '');
+  ['f-annee', 'f-degre', 'f-axe', 'f-volet', 'f-struct', 'f-lieu', 'f-public'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('f-search').value = '';
   applyFilters();
 }
@@ -1138,7 +1225,7 @@ grist.ready({ requiredAccess: 'full', columns: [] });
 grist.onRecords(async (records) => {
   showLoader(true);
   try {
-    await Promise.all([loadActionAxeMapIfAllowed(), loadPublicValuesIfAllowed(), loadDegreValuesIfAllowed()]);
+    await Promise.all([loadActionAxeMapIfAllowed(), loadPublicValuesIfAllowed(), loadDegreValuesIfAllowed(), loadLieuxSessionsIfAllowed()]);
     ALL = (records || []).map(r => ({ id: r.id, ...r }));
     buildFilters();
     applyFilters();
