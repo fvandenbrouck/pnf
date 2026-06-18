@@ -8,7 +8,7 @@
 <!-- Version v43 : ajout contact par Nom, Prénom, Email avec colonnes Contacts robustes -->
 <!-- Version v31 : écriture prudente des références Structure et Modalité -->
 <!-- Version v33 : dirty-fields tracking to avoid reference corruption -->
-<!-- Version v60 : dissocie Contacts et Responsables de suivi -->
+<!-- Version v61 : responsables de suivi filtrés sur Structures.$id = 8 -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -726,7 +726,7 @@ html, body {
 </div>
 
 <script>
-console.info('[widget-cartes] v60 contacts et responsables de suivi dissociés chargé');
+console.info('[widget-cartes] v61 responsables de suivi filtrés sur structure 8 chargé');
 
 // ── Données ──────────────────────────────────────────────────────────────
 let ALL = [], FILTERED = [];
@@ -734,11 +734,12 @@ let VOLET_MAP = {}, AXE_MAP = {}, ACTION_AXE_MAP = {}, STRUCT_MAP = {}, MODAL_MA
 let ANNEE_ID_TO_LABEL = {}, ANNEE_LABEL_TO_ID = {}, ANNEE_OPTIONS = [];
 let STATUT_ID_TO_LABEL = {}, STATUT_LABEL_TO_ID = {}, STATUT_OPTIONS = [];
 let DEGRE_ID_TO_LABEL = {}, DEGRE_LABEL_TO_ID = {}, DEGRE_OPTIONS = [];
-let CONTACT_LABEL_TO_ID = {}, CONTACT_OPTIONS = [];
+let CONTACT_LABEL_TO_ID = {}, CONTACT_OPTIONS = [], RESPONSABLE_SUIVI_OPTIONS = [];
 let CONTACT_COLS = { nomPrenom: 'Nom Prénom', nom: 'NOM', prenom: 'PRENOM', email: 'Email', structure: 'Structure' };
 let DEGREE_ACTION_COL = 'Degre';
 let CONTACT_ACTION_COL = 'Contacts';
 let RESPONSABLE_SUIVI_ACTION_COL = 'Responsable_suivi';
+const RESPONSABLE_SUIVI_STRUCTURE_ID = '8';
 let STATUT_ACTION_COL = 'Statut';
 let ACTION_AXE_OPTIONS = [];
 let ACTION_COL = 'id_action_referentiel';
@@ -933,6 +934,16 @@ function contactLabelFromRow(r) {
   const email  = firstText(r, [CONTACT_COLS.email, 'Email', 'EMAIL', 'email', 'mail']);
   const fullName = nomPrenom || [prenom, nom].filter(Boolean).join(' ').trim() || nom || prenom || email;
   return [fullName, email && fullName !== email ? `<${email}>` : ''].filter(Boolean).join(' ').trim();
+}
+
+
+function contactStructureIdFromRow(r) {
+  const value = r && (r[CONTACT_COLS.structure] ?? r.Structure ?? r.STRUCTURE ?? r.structure ?? '');
+  return refId(value);
+}
+
+function isResponsableSuiviContact(r) {
+  return String(contactStructureIdFromRow(r)) === RESPONSABLE_SUIVI_STRUCTURE_ID;
 }
 
 function contactValue(v) {
@@ -1132,6 +1143,10 @@ function registerContactLocally(id, contact) {
   if (!CONTACT_OPTIONS.some(o => String(o.value) === sid)) {
     CONTACT_OPTIONS.push({value: sid, label});
     CONTACT_OPTIONS.sort((a,b)=>a.label.localeCompare(b.label,'fr'));
+  }
+  if (String(contact.structure || '') === RESPONSABLE_SUIVI_STRUCTURE_ID && !RESPONSABLE_SUIVI_OPTIONS.some(o => String(o.value) === sid)) {
+    RESPONSABLE_SUIVI_OPTIONS.push({value: sid, label});
+    RESPONSABLE_SUIVI_OPTIONS.sort((a,b)=>a.label.localeCompare(b.label,'fr'));
   }
 }
 
@@ -1423,6 +1438,7 @@ grist.onRecords(async (records) => {
     CONT_MAP   = {};
     CONTACT_LABEL_TO_ID = {};
     CONTACT_OPTIONS = [];
+    RESPONSABLE_SUIVI_OPTIONS = [];
     cRows.forEach(r => {
       const label = contactLabelFromRow(r);
       if (!label) return;
@@ -1446,8 +1462,12 @@ grist.onRecords(async (records) => {
       }
 
       CONTACT_OPTIONS.push({value: id, label});
+      if (isResponsableSuiviContact(r)) {
+        RESPONSABLE_SUIVI_OPTIONS.push({value: id, label});
+      }
     });
     CONTACT_OPTIONS.sort((a,b)=>a.label.localeCompare(b.label,'fr'));
+    RESPONSABLE_SUIVI_OPTIONS.sort((a,b)=>a.label.localeCompare(b.label,'fr'));
     PUBLIC_MAP = Object.fromEntries(pRows.map(r => [r.id, publicLabelFromRow(r)]).filter(([,v]) => v));
     LIEU_MAP = Object.fromEntries(lRows.map(r => [r.id, lieuLabelFromRow(r)]).filter(([,v]) => v));
     window.LIEU_VALUES = [...new Set(lRows.map(lieuLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
@@ -1943,6 +1963,9 @@ function buildModalForm(a) {
   const contactOptions = (CONTACT_OPTIONS && CONTACT_OPTIONS.length)
     ? CONTACT_OPTIONS
     : (window.CONTACT_VALUES || []).map(v => ({value: CONTACT_LABEL_TO_ID[v] || v, label: v}));
+  const responsableSuiviOptions = (RESPONSABLE_SUIVI_OPTIONS && RESPONSABLE_SUIVI_OPTIONS.length)
+    ? RESPONSABLE_SUIVI_OPTIONS
+    : contactOptions.filter(o => String(o.value || '') && String(o.value || '') !== '');
   const selectedContactIds = contactIdsFromValue(getContactsValue(a));
   const selectedResponsableSuiviIds = responsableSuiviIdsFromValue(getResponsableSuiviValue(a));
   const selectedPublics = publicValues(a);
@@ -2078,7 +2101,7 @@ function buildModalForm(a) {
     <div class="mfield full">
       <label>Responsable(s) de suivi</label>
       <div class="mchips" id="m-responsables-suivi">
-        ${contactOptions.map(o => `<label class="mchip"><input type="checkbox" value="${esc(o.value)}"${checked(selectedResponsableSuiviIds, o.value)}><span>${esc(stripContactEmail(o.label))}</span></label>`).join('')}
+        ${responsableSuiviOptions.map(o => `<label class="mchip"><input type="checkbox" value="${esc(o.value)}"${checked(selectedResponsableSuiviIds, o.value)}><span>${esc(stripContactEmail(o.label))}</span></label>`).join('')}
       </div>
     </div>
     <div class="mfield full">
