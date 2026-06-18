@@ -1665,6 +1665,7 @@ function applyFilters() {
     if (!matchAny(degreLabelFromValue(getDegre(a)).split(',').map(s => s.trim()).filter(Boolean), degres)) return false;
     if (search && !(a.titre||'').toLowerCase().includes(search) &&
                   !(a.objectif||'').toLowerCase().includes(search) &&
+                  !(a.code_gaia||'').toLowerCase().includes(search) &&
                   !anneeLabelFromValue(getAnnee(a)).toLowerCase().includes(search) &&
                   !statutLabelFromValue(getStatut(a)).toLowerCase().includes(search) &&
                   !publicValues(a).join(' ').toLowerCase().includes(search) &&

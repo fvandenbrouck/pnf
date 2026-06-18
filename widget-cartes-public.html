@@ -978,6 +978,7 @@ function matchList(values, filter) {
 
 function searchableText(a) {
   return [
+    firstText(a, 'code_gaia'),
     firstText(a, 'titre'),
     firstText(a, 'objectif'),
     firstText(a, 'id_volet'),
