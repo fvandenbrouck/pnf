@@ -151,6 +151,7 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 .history-next { border-top:1px solid var(--border); padding-top:8px; }
 .btn-delete-entry { font-family:'DM Sans',sans-serif; font-size:10px; font-weight:600; padding:4px 8px; border-radius:6px; border:1.5px solid var(--strawberry); background:#fff; color:#8a2030; cursor:pointer; }
 .btn-delete-entry:hover { background:rgba(245,160,168,.16); }
+.btn-delete-entry:disabled { opacity:.55; cursor:not-allowed; background:#fff; }
 
 .tabs { display:flex; flex-wrap:wrap; gap:6px; border-bottom:1px solid var(--border); padding:0 24px 10px; background:var(--white); }
 .tab-btn { font-family:'DM Sans',sans-serif; font-size:12px; font-weight:600; padding:8px 12px; border:1.5px solid var(--border); border-radius:999px; background:var(--bg); color:var(--ink2); cursor:pointer; }
@@ -300,7 +301,7 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 </div>
 
 <script>
-console.info('[widget-journal-actions] v34 statut_suivi en vignette centrale chargé');
+console.info('[widget-journal-actions] v35 suppression entrée journal corrigée chargé');
 let ALL = [], FILTERED = [], CURRENT_ACTION = null, selectedId = null;
 let CONTACT_ROWS = [], CONTACT_SUIVI_ROWS = [], CHEFFERIE_ROWS = [], LIEU_ROWS = [], MODALITEX_ROWS = [], STATUS_ROWS = [], JOURNAL_ROWS = [], SESSION_ROWS = [];
 let CONTACT_MAP = {}, CONTACT_ID_BY_LABEL = {}, CONTACT_ID_BY_NORM_LABEL = {}, CHEFFERIE_MAP = {}, CHEFFERIE_ID_BY_LABEL = {}, LIEU_MAP = {}, MODALITEX_MAP = {}, STATUS_MAP = {}, STATUS_ID_BY_LABEL = {};
@@ -827,7 +828,14 @@ function journalFormHtml(){ const today=new Date().toISOString().slice(0,10); re
   <div class="mfield full"><label>Prochaine étape</label><textarea id="j-next" placeholder="Prochaine action à mener…"></textarea></div>
   <div class="mfield full"><div class="btn-row"><span class="msg" id="msg-journal"></span><button class="btn btn-primary" onclick="addJournalEntry()">Ajouter l’entrée</button></div></div>
   </div>`; }
-function historyItemHtml(j){ const status=statusTextFromEntry(j); const resp=labelFor(j.Responsable,CONTACT_MAP); const date=formatDateValue(j.Date); const ech=formatDateValue(j.Echeance); return `<div class="history-item"><div class="history-head"><div class="history-head-left"><span class="history-date">${esc(date||'Sans date')}</span>${status?`<span class="tag status ${statusClass(status)}">${esc(status)}</span>`:''}${resp?`<span class="tag tag-resp">${esc(resp)}</span>`:''}</div><div class="history-head-left">${ech?`<span class="tag tag-date">Échéance ${esc(ech)}</span>`:''}<button class="btn-delete-entry" onclick="deleteJournalEntry(event, ${j.id})">Supprimer</button></div></div>${j.Compte_rendu?`<div class="history-text">${esc(j.Compte_rendu)}</div>`:''}${j.Prochaine_etape?`<div class="history-text history-next"><strong>Prochaine étape</strong><br>${esc(j.Prochaine_etape)}</div>`:''}</div>`; }
+function historyItemHtml(j){
+  const status=statusTextFromEntry(j);
+  const resp=labelFor(j.Responsable,CONTACT_MAP);
+  const date=formatDateValue(j.Date);
+  const ech=formatDateValue(j.Echeance);
+  const entryId=String(j.id||'');
+  return `<div class="history-item" data-journal-entry-id="${esc(entryId)}"><div class="history-head"><div class="history-head-left"><span class="history-date">${esc(date||'Sans date')}</span>${status?`<span class="tag status ${statusClass(status)}">${esc(status)}</span>`:''}${resp?`<span class="tag tag-resp">${esc(resp)}</span>`:''}</div><div class="history-head-left">${ech?`<span class="tag tag-date">Échéance ${esc(ech)}</span>`:''}<button type="button" class="btn-delete-entry" data-journal-entry-id="${esc(entryId)}">Supprimer</button></div></div>${j.Compte_rendu?`<div class="history-text">${esc(j.Compte_rendu)}</div>`:''}${j.Prochaine_etape?`<div class="history-text history-next"><strong>Prochaine étape</strong><br>${esc(j.Prochaine_etape)}</div>`:''}</div>`;
+}
 function toggleLieu(id){ id=String(id); if(SELECTED_LIEUX.has(id)) SELECTED_LIEUX.delete(id); else SELECTED_LIEUX.add(id); document.querySelectorAll('#s-lieux .chip').forEach(chip=>{ const text=chip.textContent.trim(); const row=LIEU_ROWS.find(r=>lieuLabel(r)===text); if(row) chip.classList.toggle('selected', SELECTED_LIEUX.has(String(row.id))); }); }
 
 async function savePilotageRefs(){
@@ -893,23 +901,58 @@ async function saveAvancement(){
   }
 }
 async function deleteJournalEntry(event, id){
-  if(event) event.stopPropagation();
-  const entry = JOURNAL_ROWS.find(j => String(j.id) === String(id));
+  if(event){
+    event.preventDefault();
+    event.stopPropagation();
+    if(typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+  }
+
+  const rowId = Number(String(id || '').trim());
+  if(!Number.isInteger(rowId) || rowId <= 0){
+    window.alert('Impossible de déterminer l’identifiant de cette entrée de journal.');
+    return false;
+  }
+
+  const entry = JOURNAL_ROWS.find(j => String(j.id) === String(rowId));
   const date = entry ? formatDateValue(entry.Date) : '';
   const ok = window.confirm(`Supprimer définitivement cette entrée de journal${date ? ' du ' + date : ''} ?
 
 Cette action est irréversible.`);
-  if(!ok) return;
+  if(!ok) return false;
+
+  const btn = event && event.currentTarget ? event.currentTarget : document.querySelector(`.btn-delete-entry[data-journal-entry-id="${rowId}"]`);
+  if(btn){ btn.disabled = true; btn.textContent = 'Suppression…'; }
+
   try{
-    await grist.docApi.applyUserActions([['RemoveRecord', JOURNAL_TABLE, Number(id)]]);
-    JOURNAL_ROWS = JOURNAL_ROWS.filter(j => String(j.id) !== String(id));
+    try{
+      await grist.docApi.applyUserActions([['RemoveRecord', JOURNAL_TABLE, rowId]]);
+    }catch(firstError){
+      // Repli pour les environnements Grist qui exposent la suppression via BulkRemoveRecord.
+      await grist.docApi.applyUserActions([['BulkRemoveRecord', JOURNAL_TABLE, [rowId]]]);
+    }
+
+    JOURNAL_ROWS = JOURNAL_ROWS.filter(j => String(j.id) !== String(rowId));
+    await refreshJournalRows();
     applyFilters();
     if(CURRENT_ACTION) buildModal();
+    return false;
   } catch(e){
-    console.error(e);
-    window.alert('Erreur lors de la suppression : ' + e.message);
+    console.error('[journal] suppression entrée impossible', e);
+    if(btn){ btn.disabled = false; btn.textContent = 'Supprimer'; }
+    window.alert('Erreur lors de la suppression : ' + (e && e.message ? e.message : e));
+    return false;
   }
 }
+
+async function refreshJournalRows(){
+  try{
+    const journal = await fetchSafe(JOURNAL_TABLE);
+    JOURNAL_ROWS = toRows(journal);
+  }catch(e){
+    console.warn('[journal] impossible de rafraîchir Journal_Actions après suppression', e);
+  }
+}
+
 async function refreshSessionRows(){
   try{
     const jsessions = await fetchSafe('Journal_sessions');
@@ -926,6 +969,11 @@ function showLoader(v){ document.getElementById('loader').classList.toggle('hidd
 grist.ready({requiredAccess:'full', columns:[]});
 grist.onRecords(loadData);
 grist.onRecord(record=>{ if(!record) return; selectedId=record.id; document.querySelectorAll('.card').forEach(el=>{ const match=+el.dataset.id===selectedId; el.classList.toggle('selected',match); if(match) el.scrollIntoView({behavior:'smooth',block:'nearest'}); }); });
+document.addEventListener('click', e=>{
+  const btn = e.target && e.target.closest ? e.target.closest('.btn-delete-entry[data-journal-entry-id]') : null;
+  if(!btn) return;
+  deleteJournalEntry(e, btn.dataset.journalEntryId);
+});
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeModal(); });
 </script>
 </body>
