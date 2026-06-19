@@ -9,6 +9,7 @@
 <!-- Version v31 : écriture prudente des références Structure et Modalité -->
 <!-- Version v33 : dirty-fields tracking to avoid reference corruption -->
 <!-- Version v64 : labels références corrigés + responsables de suivi actifs depuis Responsable_suivi_ids -->
+<!-- Version v65 : correction lisibilité des champs en mode sombre -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -666,6 +667,41 @@ html, body {
   color: var(--ink3);
   font-style: italic;
 }
+
+
+/* ── CORRECTION MODE SOMBRE / SAFARI ────────────────────────────────
+   Certains navigateurs injectent une couleur de texte claire dans les champs
+   lorsque macOS est en mode sombre. On force ici un rendu clair et lisible. */
+.tb-search input,
+.tb-sel select,
+.multi-btn,
+.mfield input,
+.mfield select,
+.mfield textarea,
+.new-contact-line input,
+.new-contact-box select {
+  color: var(--ink) !important;
+  -webkit-text-fill-color: var(--ink) !important;
+  caret-color: var(--ink);
+  color-scheme: light;
+}
+
+.tb-search input::placeholder,
+.mfield input::placeholder,
+.mfield textarea::placeholder,
+.new-contact-line input::placeholder {
+  color: var(--ink3) !important;
+  -webkit-text-fill-color: var(--ink3) !important;
+  opacity: 1;
+}
+
+.tb-sel select option,
+.mfield select option,
+.new-contact-box select option {
+  color: var(--ink);
+  background: var(--white);
+}
+
 </style>
 </head>
 <body>
@@ -726,7 +762,7 @@ html, body {
 </div>
 
 <script>
-console.info('[widget-cartes] v64 labels références + responsables de suivi ids chargé');
+console.info('[widget-cartes] v65 labels références + responsables de suivi ids + correction mode sombre chargé');
 
 // ── Données ──────────────────────────────────────────────────────────────
 let ALL = [], FILTERED = [];
