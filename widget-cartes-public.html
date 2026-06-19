@@ -6,6 +6,7 @@
 <title>Catalogue public des actions de formation</title>
 <!-- Version v46 : filtre Degrés robuste + filtre Année scolaire -->
 <!-- Version corrigée : filtre Degrés depuis Degres.nom_deg -->
+<!-- Version v48 : filtres alignés widget-cartes + lieux + correction mode sombre -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -95,6 +96,29 @@ html, body {
   transition: border-color .12s;
 }
 .tb-search input:focus { border-color: var(--navy); }
+
+/* Correction mode sombre : empêcher WebKit/macOS de rendre le texte blanc dans les champs */
+html, body, input, select, textarea, button {
+  color-scheme: light;
+}
+.tb-search input,
+.tb-sel select,
+.mfield input,
+.mfield select,
+.mfield textarea,
+.detail-section input,
+.detail-section select,
+.detail-section textarea {
+  color: var(--ink) !important;
+  -webkit-text-fill-color: var(--ink) !important;
+  caret-color: var(--ink);
+}
+.tb-search input::placeholder {
+  color: var(--ink3) !important;
+  -webkit-text-fill-color: var(--ink3) !important;
+  opacity: 1;
+}
+
 
 .tb-sel {
   position: relative;
@@ -459,12 +483,15 @@ html, body {
     </svg>
     <input type="text" id="f-search" placeholder="Rechercher titre, objectif, public…" oninput="applyFilters()">
   </div>
-  <div class="tb-sel"><select id="f-annee"  onchange="applyFilters()"><option value="">Toutes les années</option></select></div>
-  <div class="tb-sel"><select id="f-degre"  onchange="applyFilters()"><option value="">Tous les degrés</option></select></div>
-  <div class="tb-sel"><select id="f-axe"    onchange="applyFilters()"><option value="">Tous les axes</option></select></div>
-  <div class="tb-sel"><select id="f-volet"  onchange="applyFilters()"><option value="">Tous les volets</option></select></div>
-  <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Toutes les structures</option></select></div>
-  <div class="tb-sel"><select id="f-public" onchange="applyFilters()"><option value="">Tous les publics</option></select></div>
+  <div class="tb-sel"><select id="f-annee"  onchange="applyFilters()"><option value="">Années</option></select></div>
+  <div class="tb-sel"><select id="f-axe"    onchange="applyFilters()"><option value="">Axes</option></select></div>
+  <div class="tb-sel"><select id="f-volet"  onchange="applyFilters()"><option value="">Volets</option></select></div>
+  <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Structures</option></select></div>
+  <div class="tb-sel"><select id="f-lieu"   onchange="applyFilters()"><option value="">Lieux</option></select></div>
+  <div class="tb-sel"><select id="f-public" onchange="applyFilters()"><option value="">Publics</option></select></div>
+  <div class="tb-sel"><select id="f-degre"  onchange="applyFilters()"><option value="">Degrés</option></select></div>
+  <div class="tb-sel"><select id="f-modal"  onchange="applyFilters()"><option value="">Modalités</option></select></div>
+  <div class="tb-sel"><select id="f-statut" onchange="applyFilters()"><option value="">Statuts</option></select></div>
   <button class="btn-reset" onclick="resetFilters()" title="Réinitialiser">✕</button>
   <span class="count" id="count">–</span>
 </div>
@@ -490,6 +517,8 @@ html, body {
 </div>
 
 <script>
+console.info('[widget-cartes-public] v48 filtres alignés + correction mode sombre chargé');
+
 // Widget public — lecture seule.
 // Important : ce widget ne demande que l'accès « read table » et ne contient aucune action AddRecord/UpdateRecord.
 
@@ -500,6 +529,9 @@ let PUBLIC_MAP = {};
 let PUBLIC_VALUES = [];
 let DEGRE_MAP = {};
 let DEGRE_VALUES = [];
+let LIEU_MAP = {};
+let LIEU_VALUES = [];
+let SESSION_ROWS = [];
 const DEFAULT_DEGRE_ROWS = [
   {id: 1, nom_deg: 'Premier degré'},
   {id: 2, nom_deg: 'Second degré'}
@@ -525,6 +557,7 @@ const FIELD_ALIASES = {
   journees_stagiaires: ['journees_stagiaires', 'Journées_stagiaires', 'Journées stagiaires', 'journees'],
   degre: ['Degre', 'Degres', 'Degré', 'Degrés', 'id_degre', 'id_degres', 'degre'],
   annee_scolaire: ['Annee_scolaire', 'Année_scolaire', 'Année scolaire', 'Annee scolaire', 'annee_scolaire', 'annee', 'Année'],
+  statut: ['Statut', 'statut', 'STATUT', 'id_statut', 'id_Statut', 'Status', 'status'],
   periode: ['periode', 'Période', 'Periode']
 };
 
@@ -667,6 +700,87 @@ function degreList(a) {
 
 function listText(a, key, cleaner = cleanDisplay) {
   return asList(get(a, key)).map(cleaner).filter(Boolean);
+}
+
+function refId(v) {
+  if (v === null || v === undefined || v === '') return '';
+  if (Array.isArray(v)) {
+    const arr = v[0] === 'L' ? v.slice(1) : v;
+    if (arr[0] === 'R') return String(arr[arr.length - 1] || '');
+    return String(arr[arr.length - 1] || '');
+  }
+  if (typeof v === 'object') return String(v.id || v.rowId || v.row_id || v.ref || v.value || '');
+  return String(v || '').trim();
+}
+
+function lieuLabelFromRow(r) {
+  return firstRowText(r, ['Site', 'site', 'Lieu', 'lieu', 'Nom', 'nom', 'libelle', 'Libelle', 'Libellé', 'label', 'Label']);
+}
+
+function buildLieuMap(rows) {
+  const entries = [];
+  const add = (k, label) => {
+    const key = String(k ?? '').trim();
+    if (key && label) entries.push([key, label]);
+  };
+  rows.forEach(r => {
+    const label = lieuLabelFromRow(r);
+    if (!label) return;
+    add(r.id, label);
+    add(`Lieux[${r.id}]`, label);
+    add(`R,Lieux,${r.id}`, label);
+    add(label, label);
+  });
+  return Object.fromEntries(entries);
+}
+
+function lieuValue(v) {
+  const key = refId(v);
+  if (!key) return '';
+  return LIEU_MAP[key] || LIEU_MAP[String(v || '').trim()] || String(v || '').trim();
+}
+
+function sessionActionId(s) {
+  return refId(s.Action || s.action || s.id_action || s.Action_formation || s.actions_formation);
+}
+
+function lieuxForAction(a) {
+  const actionId = String(a && a.id || '');
+  const lieux = [];
+  SESSION_ROWS
+    .filter(s => String(sessionActionId(s)) === actionId)
+    .forEach(s => {
+      for (let i = 0; i < 10; i++) {
+        const label = lieuValue(s[`Lieu${i}`]);
+        if (label) lieux.push(label);
+      }
+    });
+  return [...new Set(lieux)];
+}
+
+async function loadLieuxSessionsIfAllowed() {
+  try {
+    if (!grist.docApi || !grist.docApi.fetchTable) return;
+    const [lieux, sessions] = await Promise.all([
+      grist.docApi.fetchTable('Lieux').catch(() => ({id:[]})),
+      grist.docApi.fetchTable('Journal_sessions').catch(() => ({id:[]}))
+    ]);
+    const tableToRows = table => (table && table.id || []).map((id, i) => {
+      const row = { id };
+      Object.keys(table || {}).forEach(k => { if (k !== 'id') row[k] = table[k][i]; });
+      return row;
+    });
+    const lieuRows = tableToRows(lieux);
+    LIEU_MAP = buildLieuMap(lieuRows);
+    LIEU_VALUES = [...new Set(lieuRows.map(lieuLabelFromRow).filter(Boolean))]
+      .sort((a,b) => a.localeCompare(b, 'fr', {numeric:true}));
+    SESSION_ROWS = tableToRows(sessions);
+  } catch(e) {
+    console.warn('Lieux ou Journal_sessions non accessibles : filtre Lieux désactivé.', e);
+    LIEU_MAP = {};
+    LIEU_VALUES = [];
+    SESSION_ROWS = [];
+  }
 }
 
 function firstText(a, key) {
@@ -913,11 +1027,14 @@ function daysText(a) {
 
 function buildFilters() {
   fillFilter('f-annee',  a => [firstText(a, 'annee_scolaire')]);
-  fillFilterFromValues('f-degre', DEGRE_VALUES.length ? DEGRE_VALUES : [...new Set(ALL.flatMap(degreList))]);
   fillFilter('f-axe',    a => [firstText(a, 'id_axe')]);
   fillFilter('f-volet',  a => [firstText(a, 'id_volet')]);
   fillFilter('f-struct', a => listText(a, 'id_structure'));
+  fillFilterFromValues('f-lieu', LIEU_VALUES.length ? LIEU_VALUES : [...new Set(ALL.flatMap(lieuxForAction))]);
   fillFilterFromValues('f-public', PUBLIC_VALUES.length ? PUBLIC_VALUES : [...new Set(ALL.flatMap(publicList))]);
+  fillFilterFromValues('f-degre', DEGRE_VALUES.length ? DEGRE_VALUES : [...new Set(ALL.flatMap(degreList))]);
+  fillFilter('f-modal',  a => [firstText(a, 'id_modalite')]);
+  fillFilter('f-statut', a => [firstText(a, 'statut')]);
 }
 
 function fillFilterFromValues(selId, values) {
@@ -986,7 +1103,9 @@ function searchableText(a) {
     actionAxeText(a),
     firstText(a, 'id_modalite'),
     firstText(a, 'annee_scolaire'),
+    firstText(a, 'statut'),
     ...listText(a, 'id_structure'),
+    ...lieuxForAction(a),
     ...publicList(a),
     ...degreList(a)
   ].join(' ').toLowerCase();
@@ -994,20 +1113,26 @@ function searchableText(a) {
 
 function applyFilters() {
   const annee  = document.getElementById('f-annee').value;
-  const degre  = document.getElementById('f-degre').value;
   const axe    = document.getElementById('f-axe').value;
   const volet  = document.getElementById('f-volet').value;
   const struct = document.getElementById('f-struct').value;
+  const lieu   = document.getElementById('f-lieu').value;
   const pub    = document.getElementById('f-public').value;
+  const degre  = document.getElementById('f-degre').value;
+  const modal  = document.getElementById('f-modal').value;
+  const statut = document.getElementById('f-statut').value;
   const search = document.getElementById('f-search').value.toLowerCase().trim();
 
   FILTERED = ALL.filter(a => {
     if (!matchText(firstText(a, 'annee_scolaire'), annee)) return false;
-    if (!matchList(degreList(a), degre)) return false;
     if (!matchText(firstText(a, 'id_axe'), axe)) return false;
     if (!matchText(firstText(a, 'id_volet'), volet)) return false;
     if (!matchList(listText(a, 'id_structure'), struct)) return false;
+    if (!matchList(lieuxForAction(a), lieu)) return false;
     if (!matchList(publicList(a), pub)) return false;
+    if (!matchList(degreList(a), degre)) return false;
+    if (!matchText(firstText(a, 'id_modalite'), modal)) return false;
+    if (!matchText(firstText(a, 'statut'), statut)) return false;
     if (search && !searchableText(a).includes(search)) return false;
     return true;
   });
@@ -1017,7 +1142,10 @@ function applyFilters() {
 }
 
 function resetFilters() {
-  ['f-annee', 'f-degre', 'f-axe', 'f-volet', 'f-struct', 'f-public'].forEach(id => document.getElementById(id).value = '');
+  ['f-annee', 'f-axe', 'f-volet', 'f-struct', 'f-lieu', 'f-public', 'f-degre', 'f-modal', 'f-statut'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
   document.getElementById('f-search').value = '';
   applyFilters();
 }
@@ -1040,6 +1168,8 @@ function openModal(a) {
   const structs = listText(a, 'id_structure');
   const degres = degreList(a);
   const modalite = firstText(a, 'id_modalite');
+  const lieux = lieuxForAction(a);
+  const statut = firstText(a, 'statut');
   const actionAxe = actionAxeText(a);
   const gaia = firstText(a, 'code_gaia');
   const days = daysText(a);
@@ -1058,6 +1188,8 @@ function openModal(a) {
       ${section('Axe', axeLib ? `<div class="detail-tags"><span class="tag tag-axe">${esc(axeLib)}</span></div>` : '')}
       ${section('Action du schéma directeur', actionAxe ? `<div class="detail-text">${esc(actionAxe)}</div>` : '')}
       ${section('Modalité', modalite ? `<div class="detail-tags"><span class="tag tag-modal">${esc(modalite)}</span></div>` : '')}
+      ${section('Lieux', tagList(lieux, 'tag-days'))}
+      ${section('Statut', statut ? `<div class="detail-tags"><span class="tag tag-days">${esc(statut)}</span></div>` : '')}
       ${section('Structure porteuse', tagList(structs, 'tag-struct'))}
       ${section('Publics cibles', tagList(publics, 'tag-public'))}
       ${section('Code GAIA', gaia ? `<div class="detail-tags"><span class="tag tag-days">GAIA&nbsp;${esc(gaia)}</span></div>` : '')}
@@ -1080,6 +1212,8 @@ function cardHtml(a, i) {
   const annee = firstText(a, 'annee_scolaire');
   const actionAxe = actionAxeText(a);
   const modalLib = firstText(a, 'id_modalite');
+  const lieux = lieuxForAction(a);
+  const statut = firstText(a, 'statut');
   const structs = listText(a, 'id_structure');
   const publics = publicList(a);
   const degres = degreList(a);
@@ -1113,6 +1247,8 @@ function cardHtml(a, i) {
           ${structs.length ? `<div class="meta-row"><span class="meta-label">Structure</span><div class="meta-value tags">${structs.map(s => `<span class="tag tag-struct">${esc(s)}</span>`).join('')}</div></div>` : ''}
           ${periode ? `<div class="meta-row"><span class="meta-label">Période</span><div class="meta-value"><span class="tag tag-periode">${esc(periode)}</span></div></div>` : ''}
           ${modalLib ? `<div class="meta-row"><span class="meta-label">Modalité</span><div class="meta-value"><span class="tag tag-modal">${esc(modalLib)}</span></div></div>` : ''}
+          ${lieux.length ? `<div class="meta-row"><span class="meta-label">Lieux</span><div class="meta-value tags">${lieux.map(l => `<span class="tag tag-days">${esc(l)}</span>`).join('')}</div></div>` : ''}
+          ${statut ? `<div class="meta-row"><span class="meta-label">Statut</span><div class="meta-value"><span class="tag tag-days">${esc(statut)}</span></div></div>` : ''}
           ${publics.length ? `<div class="meta-row"><span class="meta-label">Publics</span><div class="meta-value tags">${publics.map(p => `<span class="tag tag-public">${esc(p)}</span>`).join('')}</div></div>` : ''}
           ${days ? `<div class="meta-row"><span class="meta-label">Volume</span><div class="meta-value"><span class="tag tag-days">${esc(days)}</span></div></div>` : ''}
         </div>
@@ -1138,7 +1274,7 @@ grist.ready({ requiredAccess: 'full', columns: [] });
 grist.onRecords(async (records) => {
   showLoader(true);
   try {
-    await Promise.all([loadActionAxeMapIfAllowed(), loadPublicValuesIfAllowed(), loadDegreValuesIfAllowed()]);
+    await Promise.all([loadActionAxeMapIfAllowed(), loadPublicValuesIfAllowed(), loadDegreValuesIfAllowed(), loadLieuxSessionsIfAllowed()]);
     ALL = (records || []).map(r => ({ id: r.id, ...r }));
     buildFilters();
     applyFilters();
