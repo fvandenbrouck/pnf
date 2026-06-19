@@ -10,6 +10,7 @@
 <!-- Version v33 : dirty-fields tracking to avoid reference corruption -->
 <!-- Version v64 : labels références corrigés + responsables de suivi actifs depuis Responsable_suivi_ids -->
 <!-- Version v65 : correction lisibilité des champs en mode sombre -->
+<!-- Version v66 : ajout Journée IG et styles de vignettes volet -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -333,6 +334,36 @@ html, body {
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+.chip-volet-1 {
+  color: #4e3370;
+  background: rgba(200,180,224,.45);
+}
+.chip-volet-21 {
+  color: #8a4a10;
+  background: rgba(249,197,154,.45);
+}
+.chip-volet-22 {
+  color: var(--navy);
+  background: rgba(249,197,154,.45);
+}
+.chip-volet-23 {
+  color: #4a4a4a;
+  background: rgba(249,197,154,.45);
+}
+.chip-ig {
+  font-family: 'DM Mono', monospace;
+  font-size: 8.5px;
+  font-weight: 700;
+  color: #8a2030;
+  background: rgba(245,160,168,.32);
+  padding: 2px 7px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 .chip-annee {
   font-family: 'DM Mono', monospace;
   font-size: 8.5px;
@@ -599,6 +630,29 @@ html, body {
   .new-contact-sep { display: none; }
 }
 
+.check-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.check-field:hover {
+  border-color: var(--navy);
+  background: var(--navy-l);
+}
+.check-field input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--navy);
+}
+
 .modal-foot {
   padding: 14px 22px;
   border-top: 1px solid var(--border);
@@ -678,6 +732,7 @@ html, body {
 .mfield input,
 .mfield select,
 .mfield textarea,
+.check-field,
 .new-contact-line input,
 .new-contact-box select {
   color: var(--ink) !important;
@@ -762,7 +817,7 @@ html, body {
 </div>
 
 <script>
-console.info('[widget-cartes] v65 labels références + responsables de suivi ids + correction mode sombre chargé');
+console.info('[widget-cartes] v66 Journée IG + vignettes volet + correction mode sombre chargé');
 
 // ── Données ──────────────────────────────────────────────────────────────
 let ALL = [], FILTERED = [];
@@ -795,6 +850,47 @@ function esc(s) {
     .replace(/</g,'&lt;')
     .replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;');
+}
+
+function boolValue(v) {
+  if (v === true) return true;
+  if (v === false || v === null || v === undefined || v === '') return false;
+  if (typeof v === 'number') return v !== 0;
+  const s = String(v).trim().toLowerCase();
+  return ['true', '1', 'oui', 'yes', 'x', 'checked'].includes(s);
+}
+
+function getJourneeIG(action) {
+  if (!action) return false;
+  const keys = ['JourneeIG', 'JournéeIG', 'Journee_IG', 'Journée_IG', 'Journee IG', 'Journée IG', 'journeeIG', 'journee_ig'];
+  for (const k of keys) {
+    if (Object.prototype.hasOwnProperty.call(action, k)) return boolValue(action[k]);
+  }
+  return false;
+}
+
+function voletChipClass(label) {
+  const s = String(label || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/,/g, '.')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (/\b2\s*\.\s*1\b/.test(s) || /volet\s*2\s*\.\s*1/.test(s)) return 'chip-volet-21';
+  if (/\b2\s*\.\s*2\b/.test(s) || /volet\s*2\s*\.\s*2/.test(s)) return 'chip-volet-22';
+  if (/\b2\s*\.\s*3\b/.test(s) || /volet\s*2\s*\.\s*3/.test(s)) return 'chip-volet-23';
+  if (/\b1\b/.test(s) || /volet\s*1\b/.test(s)) return 'chip-volet-1';
+  return '';
+}
+
+function voletChipHtml(label) {
+  const lib = String(label || '').trim();
+  return lib ? `<span class="chip-volet ${voletChipClass(lib)}">${esc(lib)}</span>` : '';
+}
+
+function journeeIGChipHtml(action) {
+  return getJourneeIG(action) ? '<span class="chip-ig">Journée IG</span>' : '';
 }
 
 // Normalise les valeurs simples, les listes JS et les listes Grist encodées ["L", ...]
@@ -1978,6 +2074,7 @@ function applyFilters() {
                   !(a.code_gaia||'').toLowerCase().includes(search) &&
                   !anneeLabelFromValue(getAnnee(a)).toLowerCase().includes(search) &&
                   !statutLabelFromValue(getStatut(a)).toLowerCase().includes(search) &&
+                  !(getJourneeIG(a) ? 'journée ig journee ig' : '').includes(search) &&
                   !publicValues(a).join(' ').toLowerCase().includes(search) &&
                   !lieuValues(a).join(' ').toLowerCase().includes(search) &&
                   !contactValues(a).join(' ').toLowerCase().includes(search) &&
@@ -2084,9 +2181,16 @@ function openModal(action, mode='edit') {
 
   // Titre et méta
   document.getElementById('modal-title').textContent = isNew ? 'Inscrire une action' : (action.titre||'Sans titre');
-  document.getElementById('modal-meta').textContent  = isNew
+  const modalVoletLib = labelFromRefValue(action.id_volet, VOLET_MAP, 'Volets');
+  const modalAxeLib = labelFromRefValue(action.id_axe, AXE_MAP, 'Axes');
+  document.getElementById('modal-meta').innerHTML = isNew
     ? 'Nouvelle action de formation'
-    : [labelFromRefValue(action.id_volet, VOLET_MAP, 'Volets'), labelFromRefValue(action.id_axe, AXE_MAP, 'Axes'), action.periode].filter(Boolean).join(' · ');
+    : [
+        voletChipHtml(modalVoletLib),
+        journeeIGChipHtml(action),
+        modalAxeLib ? esc(modalAxeLib) : '',
+        action.periode ? esc(action.periode) : ''
+      ].filter(Boolean).join(' · ');
 
   // Construire le formulaire
   buildModalForm(action);
@@ -2247,19 +2351,28 @@ function buildModalForm(a) {
         <input type="text" id="m-gaia" value="${esc(a.code_gaia||'')}">
       </div>
     </div>
-    <div class="mfield full">
-      <label>Statut</label>
-      <div class="mchips" id="m-statut">
-        ${(STATUT_OPTIONS && STATUT_OPTIONS.length ? STATUT_OPTIONS : [
-          {id: '1', label: 'validé'},
-          {id: '2', label: 'reporté'},
-          {id: '3', label: 'annulé'}
-        ]).map(o=>{
-          const id = String(o.id || '').trim();
-          const label = String(o.label || '').trim();
-          const current = statutLabelFromValue(getStatut(a));
-          return `<label class="mchip"><input type="checkbox" value="${esc(id)}" data-label="${esc(label)}"${current === label ? ' checked' : ''} onclick="toggleStatutChoice(this)"><span>${esc(label)}</span></label>`;
-        }).join('')}
+    <div class="modal-row">
+      <div class="mfield">
+        <label>Statut</label>
+        <div class="mchips" id="m-statut">
+          ${(STATUT_OPTIONS && STATUT_OPTIONS.length ? STATUT_OPTIONS : [
+            {id: '1', label: 'validé'},
+            {id: '2', label: 'reporté'},
+            {id: '3', label: 'annulé'}
+          ]).map(o=>{
+            const id = String(o.id || '').trim();
+            const label = String(o.label || '').trim();
+            const current = statutLabelFromValue(getStatut(a));
+            return `<label class="mchip"><input type="checkbox" value="${esc(id)}" data-label="${esc(label)}"${current === label ? ' checked' : ''} onclick="toggleStatutChoice(this)"><span>${esc(label)}</span></label>`;
+          }).join('')}
+        </div>
+      </div>
+      <div class="mfield">
+        <label>Journée IG</label>
+        <label class="check-field">
+          <input type="checkbox" id="m-journee-ig"${getJourneeIG(a) ? ' checked' : ''}>
+          <span>Journée IG</span>
+        </label>
       </div>
     </div>
     <div class="modal-row">
@@ -2358,6 +2471,7 @@ function attachDirtyTracking() {
   bind('#m-action-axe', 'change', 'action');
   bind('#m-debut', 'change', 'debut');
   bind('#m-fin', 'change', 'fin');
+  bind('#m-journee-ig', 'change', 'journee_ig');
 
   document.querySelectorAll('#m-structs input').forEach(el => el.addEventListener('change', () => markDirty('structures')));
   document.querySelectorAll('#m-contacts input').forEach(el => el.addEventListener('change', () => markDirty('contacts')));
@@ -2394,6 +2508,7 @@ function readFormSnapshot() {
     publics: checkedValues('#m-publics'),
     degres: checkedValues('#m-degres'),
     statut: checkedValues('#m-statut'),
+    journee_ig: Boolean(byId('m-journee-ig')?.checked),
   };
 }
 
@@ -2500,6 +2615,7 @@ async function saveRecord() {
   const debutVal = document.getElementById('m-debut').value;
   const finVal = document.getElementById('m-fin').value;
   const actionAxeRaw = document.getElementById('m-action-axe').value;
+  const journeeIGVal = Boolean(document.getElementById('m-journee-ig')?.checked);
 
   const jsPrevisionRaw = document.getElementById('m-js-prevision').value.trim().replace(',', '.');
   const heuresFormationRaw = document.getElementById('m-heures-formation').value.trim().replace(',', '.');
@@ -2548,6 +2664,7 @@ async function saveRecord() {
   if (formFieldChanged('heures_formation', heuresFormationRaw)) fields.heures_formation = heuresFormationRaw === '' ? null : heuresFormationVal;
   if (formFieldChanged('debut', debutVal)) fields.date_debut = toTs(debutVal);
   if (formFieldChanged('fin', finVal)) fields.date_fin = toTs(finVal);
+  if (formFieldChanged('journee_ig', journeeIGVal)) fields.JourneeIG = journeeIGVal;
 
   // Références simples : n'écrire que si le champ a été modifié dans la modale.
   if (formFieldChanged('volet', voletLabel)) {
@@ -2674,6 +2791,7 @@ function downloadFilteredCSV() {
     'structure',
     'modalite',
     'statut',
+    'journee_ig',
     'publics',
     'contacts',
     'responsables_suivi',
@@ -2694,6 +2812,7 @@ function downloadFilteredCSV() {
     structure: csvJoinList(asList(a.id_structure).filter(Boolean)),
     modalite: a.id_modalite || '',
     statut: statutLabelFromValue(getStatut(a)),
+    journee_ig: getJourneeIG(a) ? 'oui' : '',
     publics: csvJoinList(publicValues(a)),
     contacts: csvJoinList(contactValues(a)),
     responsables_suivi: csvJoinList(responsableSuiviValues(a)),
@@ -2749,6 +2868,7 @@ function render() {
     const gaia     = a.code_gaia || '';
     const degre    = degreLabelFromValue(getDegre(a));
     const statut   = statutLabelFromValue(getStatut(a));
+    const journeeIG = getJourneeIG(a);
     const delay    = Math.min(i * 18, 400);
     const isSel    = a.id === selectedId;
 
@@ -2763,7 +2883,8 @@ function render() {
         <div class="card-top">
           <span class="card-top-left">
             ${anneeLib ? `<span class="chip-annee">${esc(anneeLib)}</span>` : ''}
-            ${voletLib ? `<span class="chip-volet">${esc(voletLib)}</span>` : ''}
+            ${voletChipHtml(voletLib)}
+            ${journeeIG ? journeeIGChipHtml(a) : ''}
           </span>
           <span class="card-top-right">
             ${gaia  ? `<span class="chip-gaia">GAIA&nbsp;${esc(gaia)}</span>` : ''}
