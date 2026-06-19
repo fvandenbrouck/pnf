@@ -10,7 +10,11 @@
 <!-- Version v33 : dirty-fields tracking to avoid reference corruption -->
 <!-- Version v64 : labels références corrigés + responsables de suivi actifs depuis Responsable_suivi_ids -->
 <!-- Version v65 : correction lisibilité des champs en mode sombre -->
+<!-- Version v66 : ajout du champ Journée IG -->
+<!-- Version v67 : recherche texte Journée IG -->
+<!-- Version v68 : filtre cumulatif Journée IG -->
 <!-- Version v66 : ajout Journée IG et styles de vignettes volet -->
+<!-- Version v67 : recherche Journée IG explicite et accent-insensible -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -157,6 +161,29 @@ html, body {
 }
 .multi-option:hover { background: var(--navy-l); }
 .multi-option input { accent-color: var(--navy); }
+
+.tb-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 104px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 9px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.tb-check input {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--navy);
+}
+.tb-check:hover { border-color: var(--navy); }
 
 .btn-reset {
   font-family: 'DM Sans', sans-serif;
@@ -729,6 +756,7 @@ html, body {
 .tb-search input,
 .tb-sel select,
 .multi-btn,
+.tb-check input,
 .mfield input,
 .mfield select,
 .mfield textarea,
@@ -781,6 +809,10 @@ html, body {
   </div>
   <div class="tb-sel"><select id="f-modal"  onchange="applyFilters()"><option value="">Modalités</option></select></div>
   <div class="tb-sel"><select id="f-statut" onchange="applyFilters()"><option value="">Statuts</option></select></div>
+  <label class="tb-check" title="Afficher uniquement les journées IG">
+    <input type="checkbox" id="f-journee-ig" onchange="applyFilters()">
+    <span>Journée IG</span>
+  </label>
   <button class="btn-reset" onclick="resetFilters()" title="Réinitialiser">✕</button>
   <button class="btn-export" onclick="downloadFilteredCSV()">Télécharger CSV</button>
   <button class="btn-new" onclick="openCreateModal()">+ Inscrire une action</button>
@@ -817,7 +849,7 @@ html, body {
 </div>
 
 <script>
-console.info('[widget-cartes] v66 Journée IG + vignettes volet + correction mode sombre chargé');
+console.info('[widget-cartes] v67 recherche Journée IG + vignettes volet + correction mode sombre chargé');
 
 // ── Données ──────────────────────────────────────────────────────────────
 let ALL = [], FILTERED = [];
@@ -2031,6 +2063,35 @@ document.addEventListener('click', e => {
   }
 });
 
+function normalizeSearchText(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function searchableText(a) {
+  return normalizeSearchText([
+    a.titre || '',
+    a.objectif || '',
+    a.code_gaia || '',
+    anneeLabelFromValue(getAnnee(a)),
+    statutLabelFromValue(getStatut(a)),
+    getJourneeIG(a) ? 'Journée IG Journee IG journée inspection générale journee inspection generale IG' : '',
+    publicValues(a).join(' '),
+    lieuValues(a).join(' '),
+    contactValues(a).join(' '),
+    responsableSuiviValues(a).join(' '),
+    actionAxeDisplay(getActionAxe(a)),
+    labelFromRefValue(a.id_axe, AXE_MAP, 'Axes'),
+    labelFromRefValue(a.id_volet, VOLET_MAP, 'Volets'),
+    labelFromRefValue(a.id_modalite, MODAL_MAP, 'Modalites'),
+    labelsFromRefValue(a.id_structure, STRUCT_MAP, 'Structures').join(' ')
+  ].join(' '));
+}
+
 function applyFilters() {
   const annee  = document.getElementById('f-annee') ? document.getElementById('f-annee').value : '';
   const axe    = document.getElementById('f-axe').value;
@@ -2041,7 +2102,8 @@ function applyFilters() {
   const degres = getSelectedDegreFilters();
   const modal  = document.getElementById('f-modal').value;
   const statut = document.getElementById('f-statut') ? document.getElementById('f-statut').value : '';
-  const search = document.getElementById('f-search').value.toLowerCase();
+  const onlyJourneeIG = Boolean(document.getElementById('f-journee-ig')?.checked);
+  const search = normalizeSearchText(document.getElementById('f-search').value);
 
   // Les champs arrivent en texte résolu → comparaison directe en chaîne
   function matchText(val, filter) {
@@ -2065,25 +2127,12 @@ function applyFilters() {
     if (!matchText(labelFromRefValue(a.id_volet, VOLET_MAP, 'Volets'), volet)) return false;
     if (!matchText(labelFromRefValue(a.id_modalite, MODAL_MAP, 'Modalites'), modal)) return false;
     if (!matchText(statutLabelFromValue(getStatut(a)), statut)) return false;
+    if (onlyJourneeIG && !getJourneeIG(a)) return false;
     if (!matchList(labelsFromRefValue(a.id_structure, STRUCT_MAP, 'Structures'), struct)) return false;
     if (!matchList(lieuValues(a), lieu)) return false;
     if (!matchList(publicValues(a), pub))   return false;
     if (!matchAny(degreLabelFromValue(getDegre(a)).split(',').map(s => s.trim()).filter(Boolean), degres)) return false;
-    if (search && !(a.titre||'').toLowerCase().includes(search) &&
-                  !(a.objectif||'').toLowerCase().includes(search) &&
-                  !(a.code_gaia||'').toLowerCase().includes(search) &&
-                  !anneeLabelFromValue(getAnnee(a)).toLowerCase().includes(search) &&
-                  !statutLabelFromValue(getStatut(a)).toLowerCase().includes(search) &&
-                  !(getJourneeIG(a) ? 'journée ig journee ig' : '').includes(search) &&
-                  !publicValues(a).join(' ').toLowerCase().includes(search) &&
-                  !lieuValues(a).join(' ').toLowerCase().includes(search) &&
-                  !contactValues(a).join(' ').toLowerCase().includes(search) &&
-                  !responsableSuiviValues(a).join(' ').toLowerCase().includes(search) &&
-                  !actionAxeDisplay(getActionAxe(a)).toLowerCase().includes(search) &&
-                  !labelFromRefValue(a.id_axe, AXE_MAP, 'Axes').toLowerCase().includes(search) &&
-                  !labelFromRefValue(a.id_volet, VOLET_MAP, 'Volets').toLowerCase().includes(search) &&
-                  !labelFromRefValue(a.id_modalite, MODAL_MAP, 'Modalites').toLowerCase().includes(search) &&
-                  !labelsFromRefValue(a.id_structure, STRUCT_MAP, 'Structures').join(' ').toLowerCase().includes(search)) return false;
+    if (search && !searchableText(a).includes(search)) return false;
     return true;
   });
 
@@ -2095,6 +2144,8 @@ function applyFilters() {
 function resetFilters() {
   ['f-annee','f-axe','f-volet','f-struct','f-lieu','f-public','f-modal','f-statut'].forEach(id =>
     document.getElementById(id).value = '');
+  const journeeIGFilter = document.getElementById('f-journee-ig');
+  if (journeeIGFilter) journeeIGFilter.checked = false;
   document.querySelectorAll('#f-degre-menu input:checked').forEach(cb => { cb.checked = false; });
   updateDegreFilterButton();
   document.getElementById('f-search').value = '';
