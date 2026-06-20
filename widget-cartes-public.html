@@ -8,6 +8,8 @@
 <!-- Version corrigée : filtre Degrés depuis Degres.nom_deg -->
 <!-- Version v48 : filtres alignés widget-cartes + lieux + correction mode sombre -->
 <!-- Version v49 : filtre Journées IG + vignettes Volet/Journées IG -->
+<!-- Version v52 : libellé Statut résolu depuis la table Statut + filtre Journées IG robuste -->
+<!-- Version v51 : filtre Journées IG corrigé par fusion complète Actions_formation + lecture booléenne robuste -->
 <!-- Version v50 : lecture robuste du booléen Actions_formation.JourneeIG -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -570,7 +572,7 @@ html, body, input, select, textarea, button {
 </div>
 
 <script>
-console.info('[widget-cartes-public] v50 filtre Journées IG robuste sur Actions_formation.JourneeIG chargé');
+console.info('[widget-cartes-public] v52 Statut résolu depuis la table Statut + filtre Journées IG robuste chargé');
 
 // Widget public — lecture seule.
 // Important : ce widget ne demande que l'accès « read table » et ne contient aucune action AddRecord/UpdateRecord.
@@ -585,6 +587,8 @@ let DEGRE_VALUES = [];
 let LIEU_MAP = {};
 let LIEU_VALUES = [];
 let SESSION_ROWS = [];
+let STATUT_MAP = {};
+let STATUT_VALUES = [];
 const DEFAULT_DEGRE_ROWS = [
   {id: 1, nom_deg: 'Premier degré'},
   {id: 2, nom_deg: 'Second degré'}
@@ -635,13 +639,39 @@ function boolValue(v) {
   if (v === false || v === null || v === undefined || v === '') return false;
   if (typeof v === 'number') return v !== 0;
   const s = normalizeSearchText(v);
-  return ['true', '1', 'oui', 'yes', 'x', 'checked'].includes(s);
+  return ['true', '1', 'oui', 'yes', 'x', 'checked', 'vrai'].includes(s);
 }
 
 function getJourneeIG(action) {
   if (!action) return false;
-  const raw = get(action, 'journee_ig');
-  return boolValue(raw);
+  const keys = FIELD_ALIASES.journee_ig || [
+    'JourneeIG',
+    'JournéeIG',
+    'Journee_IG',
+    'Journée_IG',
+    'Journee IG',
+    'Journée IG',
+    'journeeIG',
+    'journee_ig'
+  ];
+
+  for (const k of keys) {
+    if (Object.prototype.hasOwnProperty.call(action, k)) {
+      return boolValue(action[k]);
+    }
+  }
+
+  return false;
+}
+
+function mergeActionRows(viewRow, fullRow) {
+  const merged = { ...(viewRow || {}), ...(fullRow || {}) };
+
+  // Garde-fou : si la vue courante ne porte pas JourneeIG mais que la table complète le porte,
+  // le filtre et les vignettes doivent tout de même reconnaître la valeur booléenne.
+  merged.JourneeIG = getJourneeIG(viewRow) || getJourneeIG(fullRow);
+
+  return merged;
 }
 
 function voletChipClass(label) {
@@ -880,6 +910,75 @@ async function loadLieuxSessionsIfAllowed() {
   }
 }
 
+function statutLabelFromRow(r) {
+  return firstRowText(r, [
+    'statut',
+    'Statut',
+    'STATUT',
+    'libelle',
+    'Libelle',
+    'Libellé',
+    'label',
+    'Label',
+    'nom',
+    'Nom'
+  ]);
+}
+
+function buildStatutMap(rows) {
+  const entries = [];
+
+  const add = (k, label) => {
+    const key = String(k ?? '').trim();
+    if (key && label) entries.push([key, label]);
+  };
+
+  rows.forEach(r => {
+    const label = statutLabelFromRow(r);
+    if (!label) return;
+
+    add(r.id, label);
+    add(r.$id, label);
+    add(String(r.id), label);
+    add(String(r.$id), label);
+    add(`Statut[${r.id}]`, label);
+    add(`Statuts[${r.id}]`, label);
+    add(`R,Statut,${r.id}`, label);
+    add(`R,Statuts,${r.id}`, label);
+    add(label, label);
+  });
+
+  return Object.fromEntries(entries);
+}
+
+function statutValue(v) {
+  if (v === null || v === undefined || v === '') return '';
+
+  if (Array.isArray(v)) {
+    return asList(v)
+      .map(statutValue)
+      .filter(Boolean)
+      .join(', ');
+  }
+
+  if (typeof v === 'object') {
+    const id = v.id || v.$id || v.rowId || v.row_id || v.ref || v.value;
+    if (id !== undefined && id !== null && STATUT_MAP[String(id)]) return STATUT_MAP[String(id)];
+
+    const label = statutLabelFromRow(v) || cleanDisplay(v);
+    return STATUT_MAP[label] || label;
+  }
+
+  const key = String(v || '').trim();
+  if (!key || key === 'L' || key === 'R' || key === 'Statut' || key === 'Statuts') return '';
+
+  return STATUT_MAP[key] || key;
+}
+
+function statutText(a) {
+  return statutValue(get(a, 'statut'));
+}
+
 function firstText(a, key) {
   return cleanDisplay(get(a, key));
 }
@@ -1039,6 +1138,32 @@ async function loadDegreValuesIfAllowed() {
   }
 }
 
+async function loadStatutValuesIfAllowed() {
+  try {
+    if (!grist.docApi || !grist.docApi.fetchTable) return;
+
+    const table = await grist.docApi.fetchTable('Statut');
+
+    const rows = (table.id || []).map((id, i) => {
+      const row = { id };
+      Object.keys(table).forEach(k => {
+        if (k !== 'id') row[k] = table[k][i];
+      });
+      return row;
+    }).filter(r => statutLabelFromRow(r));
+
+    STATUT_MAP = buildStatutMap(rows);
+
+    STATUT_VALUES = [...new Set(rows.map(statutLabelFromRow).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'fr', { numeric: true }));
+
+  } catch(e) {
+    console.warn('Table Statut non accessible : le filtre Statuts sera construit à partir des actions existantes.', e);
+    STATUT_MAP = {};
+    STATUT_VALUES = [];
+  }
+}
+
 function cleanActionAxeKey(raw) {
   if (raw === null || raw === undefined) return '';
   if (Array.isArray(raw)) {
@@ -1131,7 +1256,7 @@ function buildFilters() {
   fillFilterFromValues('f-public', PUBLIC_VALUES.length ? PUBLIC_VALUES : [...new Set(ALL.flatMap(publicList))]);
   fillFilterFromValues('f-degre', DEGRE_VALUES.length ? DEGRE_VALUES : [...new Set(ALL.flatMap(degreList))]);
   fillFilter('f-modal',  a => [firstText(a, 'id_modalite')]);
-  fillFilter('f-statut', a => [firstText(a, 'statut')]);
+  fillFilterFromValues('f-statut', STATUT_VALUES.length ? STATUT_VALUES : [...new Set(ALL.map(statutText).filter(Boolean))]);
 }
 
 function fillFilterFromValues(selId, values) {
@@ -1200,7 +1325,7 @@ function searchableText(a) {
     actionAxeText(a),
     firstText(a, 'id_modalite'),
     firstText(a, 'annee_scolaire'),
-    firstText(a, 'statut'),
+    statutText(a),
     getJourneeIG(a) ? 'Journées IG Journee IG inspection générale inspection generale' : '',
     ...listText(a, 'id_structure'),
     ...lieuxForAction(a),
@@ -1231,7 +1356,7 @@ function applyFilters() {
     if (!matchList(publicList(a), pub)) return false;
     if (!matchList(degreList(a), degre)) return false;
     if (!matchText(firstText(a, 'id_modalite'), modal)) return false;
-    if (!matchText(firstText(a, 'statut'), statut)) return false;
+    if (!matchText(statutText(a), statut)) return false;
     if (journeeIGOnly && !getJourneeIG(a)) return false;
     if (search && !searchableText(a).includes(search)) return false;
     return true;
@@ -1277,7 +1402,7 @@ function openModal(a) {
   const degres = degreList(a);
   const modalite = firstText(a, 'id_modalite');
   const lieux = lieuxForAction(a);
-  const statut = firstText(a, 'statut');
+  const statut = statutText(a);
   const actionAxe = actionAxeText(a);
   const gaia = firstText(a, 'code_gaia');
   const days = daysText(a);
@@ -1321,7 +1446,7 @@ function cardHtml(a, i) {
   const actionAxe = actionAxeText(a);
   const modalLib = firstText(a, 'id_modalite');
   const lieux = lieuxForAction(a);
-  const statut = firstText(a, 'statut');
+  const statut = statutText(a);
   const structs = listText(a, 'id_structure');
   const publics = publicList(a);
   const degres = degreList(a);
@@ -1383,7 +1508,13 @@ grist.ready({ requiredAccess: 'full', columns: [] });
 grist.onRecords(async (records) => {
   showLoader(true);
   try {
-    await Promise.all([loadActionAxeMapIfAllowed(), loadPublicValuesIfAllowed(), loadDegreValuesIfAllowed(), loadLieuxSessionsIfAllowed()]);
+    await Promise.all([
+      loadActionAxeMapIfAllowed(),
+      loadPublicValuesIfAllowed(),
+      loadDegreValuesIfAllowed(),
+      loadStatutValuesIfAllowed(),
+      loadLieuxSessionsIfAllowed()
+    ]);
 
     const incomingRows = (records || []).map(r => ({ id: r.id, ...r }));
     let fullActionRows = [];
@@ -1402,8 +1533,10 @@ grist.onRecords(async (records) => {
 
     const fullById = Object.fromEntries(fullActionRows.map(r => [String(r.id), r]));
     ALL = incomingRows.length
-      ? incomingRows.map(r => ({ ...(fullById[String(r.id)] || {}), ...r }))
-      : fullActionRows;
+      ? incomingRows.map(r => mergeActionRows(r, fullById[String(r.id)] || {}))
+      : fullActionRows.map(r => mergeActionRows({}, r));
+
+    console.info('[widget-cartes-public] Actions Journées IG détectées :', ALL.filter(getJourneeIG).length);
 
     buildFilters();
     applyFilters();
