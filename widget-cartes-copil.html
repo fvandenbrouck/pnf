@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF — Comité de pilotage</title>
+<!-- Version v14 : tri alphabétique des contacts IGÉSR par NOM dans la modale -->
+<!-- Version v13 : filtre Référents limité aux contacts IGÉSR dans la barre des filtres -->
 <!-- Version v12 : filtres public + référents IGÉSR + normalisation nouveau référent -->
 <!-- Version v10 : filtres alignés widget-cartes-public + recherche enrichie -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
@@ -268,12 +270,25 @@ function refId(v){
   if(v === null || v === undefined || v === '') return '';
   if(Array.isArray(v)){
     const arr = v[0] === 'L' ? v.slice(1) : v;
+    if(!arr.length) return '';
     if(arr[0] === 'R') return String(arr[arr.length - 1] || '');
     const nums = arr.map(x => String(x || '').trim()).filter(x => /^\d+$/.test(x));
     return nums.length ? nums[nums.length - 1] : String(arr[arr.length - 1] || '');
   }
-  if(typeof v === 'object') return String(v.id || v.rowId || v.row_id || v.ref || v.value || '');
-  return String(v || '').trim();
+  if(typeof v === 'object') {
+    return String(
+      v.$id ??
+      v.id ??
+      v.rowId ??
+      v.row_id ??
+      v.ref ??
+      v.value ??
+      ''
+    );
+  }
+  const raw = String(v || '').trim();
+  const refMatch = raw.match(/^R,\s*[^,]+,\s*(\d+)$/i) || raw.match(/^[^[]+\[(\d+)\]$/);
+  return refMatch ? refMatch[1] : raw;
 }
 
 function labelForRef(v, map){
@@ -364,8 +379,18 @@ function isIgesrContact(r){
   return String(contactStructureIdFromRow(r)) === String(IGESR_STRUCTURE_ID);
 }
 
+function contactSortKeyFromRow(r){
+  const nom = firstText(r,['NOM','Nom','nom']);
+  const prenom = firstText(r,['PRENOM','Prénom','Prenom','prenom']);
+  const label = contactLabelFromRow(r);
+  const primary = nom || label;
+  return [primary, prenom, label].map(x => norm(x)).join(' ');
+}
+
 function contactRowsForReferentChoice(){
-  return CONTACT_ROWS.filter(isIgesrContact);
+  return CONTACT_ROWS
+    .filter(isIgesrContact)
+    .sort((a,b)=>contactSortKeyFromRow(a).localeCompare(contactSortKeyFromRow(b),'fr',{numeric:true}));
 }
 
 function igesrStructureLabel(){
@@ -447,8 +472,15 @@ function referentIdsFromAction(a){
   const vals = asList(a && a[REFERENTS_COL]);
   const ids = [];
   vals.forEach(v=>{
-    const raw = String(v||'').trim();
-    if(/^\d+$/.test(raw) && CONTACT_MAP[raw]) ids.push(raw);
+    const id = String(refId(v) || '').trim();
+    const raw = String(
+      (v && typeof v === 'object' && !Array.isArray(v))
+        ? (v['Nom Prénom'] || v.label || v.Label || v.display || v.Display || '')
+        : (v || '')
+    ).trim();
+
+    if(id && CONTACT_MAP[id]) ids.push(id);
+    else if(/^\d+$/.test(raw) && CONTACT_MAP[raw]) ids.push(raw);
     else if(CONTACT_ID_BY_LABEL[raw]) ids.push(CONTACT_ID_BY_LABEL[raw]);
     else {
       const emailMatch = raw.match(/<([^>]+)>/) || raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
@@ -552,25 +584,25 @@ function buildFilterControls(){
 
   // Le filtre Référents reste spécifique au widget COPIL.
   // Il est volontairement limité aux contacts IGÉSR, en testant la référence Contacts.Structure sur $id = 2.
-  // Cela évite d'afficher dans la barre des filtres des référents rattachés à d'autres structures.
+  // Les options portent désormais les ids Contacts ; cela évite les collisions de libellés et exclut tout référent hors IGÉSR.
   const igesrContactIds = new Set(contactRowsForReferentChoice().map(r => String(r.id)));
-  let referentValues = [...new Set(CONTACT_ROWS
-    .filter(r => igesrContactIds.has(String(r.id)))
-    .map(contactLabelFromRow)
-    .map(s => String(s||'').trim())
-    .filter(Boolean))]
-    .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
+  let referentValues = contactRowsForReferentChoice()
+    .map(r => ({
+      value: String(r.id),
+      label: contactLabelFromRow(r)
+    }))
+    .filter(o => o.value && o.label)
+    .sort((a,b)=>a.label.localeCompare(b.label,'fr',{numeric:true}));
 
   if(!referentValues.length){
-    referentValues = [...new Set(ALL
+    referentValues = [...new Map(ALL
       .flatMap(a => referentIdsFromAction(a)
         .map(id => String(id))
         .filter(id => igesrContactIds.has(id))
-        .map(id => CONTACT_MAP[id])
-        .filter(Boolean))
-      .map(s => String(s||'').trim())
-      .filter(Boolean))]
-      .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
+        .map(id => ({value:id, label:CONTACT_MAP[id]}))
+        .filter(o => o.value && o.label))
+      .map(o => [o.value, o])).values()]
+      .sort((a,b)=>a.label.localeCompare(b.label,'fr',{numeric:true}));
     console.warn('[widget-cartes-copil] Aucun contact IGÉSR résolu depuis Contacts : filtre Référents alimenté par les référents IGÉSR déjà inscrits.');
   }
 
@@ -713,7 +745,7 @@ function applyFilters(){
     if(degreFilter && !degres.includes(degreFilter)) return false;
     if(modalFilter && modal !== modalFilter) return false;
     if(statutFilter && statut !== statutFilter) return false;
-    if(referentFilter && !referentLabels.includes(String(referentFilter))) return false;
+    if(referentFilter && !referentIds.includes(String(referentFilter))) return false;
     if(q && !normalizeSearch(searchableText(a, referentLabels)).includes(q)) return false;
     return true;
   });
@@ -816,7 +848,11 @@ function buildModalBody(){
 }
 function renderContactChoices(){
   const q=norm(document.getElementById('contact-search')?.value||'');
-  const rows=contactRowsForReferentChoice().filter(r=>!q || contactLabelFromRow(r).toLowerCase().includes(q) || contactEmailFromRow(r).toLowerCase().includes(q)).slice(0,200);
+  const rows=contactRowsForReferentChoice().filter(r=>{
+    const label = norm(contactLabelFromRow(r));
+    const email = norm(contactEmailFromRow(r));
+    return !q || label.includes(q) || email.includes(q);
+  }).slice(0,200);
   document.getElementById('contact-choices').innerHTML = rows.map(r=>{
     const id=String(r.id); const label=contactLabelFromRow(r); const sel=SELECTED_REFERENT_IDS.has(id);
     return `<span class="chip${sel?' selected':''}" onclick="toggleReferent('${esc(id)}')">${esc(label)}</span>`;
