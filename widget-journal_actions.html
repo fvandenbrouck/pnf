@@ -464,7 +464,7 @@ function voletChipClass(label){
   return '';
 }
 function voletChipHtml(label){ const lib=String(label||'').trim(); return lib ? `<span class="chip-volet ${voletChipClass(lib)}">${esc(lib)}</span>` : ''; }
-function journeeIGChipHtml(a){ return getJourneeIG(a) ? '<span class="chip-ig">Journée IG</span>' : ''; }
+function journeeIGChipHtml(a){ return getJourneeIG(a) ? '<span class="chip-ig">Journées IG</span>' : ''; }
 function searchNorm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
 function getDegre(a){ return labelsFor(a.Degre || a.Degres || a['Degré'] || a['Degrés'] || a.id_degre || a.id_degres || a.degre || a.degres, DEGRE_MAP, 'Degres'); }
 function getStructures(a){ return labelsFor(a.id_structure || a.Structure || a['Structure porteuse'] || a.Structures, STRUCT_MAP, 'Structures'); }
