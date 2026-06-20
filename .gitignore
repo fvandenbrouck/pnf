@@ -2,3 +2,4 @@
 *.zip
 .env
 table_backup/
+logs/
