@@ -9,6 +9,7 @@
 <!-- Version v48 : filtres alignés widget-cartes + lieux + correction mode sombre -->
 <!-- Version v49 : filtre Journées IG + vignettes Volet/Journées IG -->
 <!-- Version v52 : libellé Statut résolu depuis la table Statut + filtre Journées IG robuste -->
+<!-- Version v53 : fusion Actions_formation corrigée pour préserver les libellés de la vue -->
 <!-- Version v51 : filtre Journées IG corrigé par fusion complète Actions_formation + lecture booléenne robuste -->
 <!-- Version v50 : lecture robuste du booléen Actions_formation.JourneeIG -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
@@ -665,7 +666,7 @@ function getJourneeIG(action) {
 }
 
 function mergeActionRows(viewRow, fullRow) {
-  const merged = { ...(viewRow || {}), ...(fullRow || {}) };
+  const merged = { ...(fullRow || {}), ...(viewRow || {}) };
 
   // Garde-fou : si la vue courante ne porte pas JourneeIG mais que la table complète le porte,
   // le filtre et les vignettes doivent tout de même reconnaître la valeur booléenne.
