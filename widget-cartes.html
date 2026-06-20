@@ -811,7 +811,7 @@ html, body {
   <div class="tb-sel"><select id="f-statut" onchange="applyFilters()"><option value="">Statuts</option></select></div>
   <label class="tb-check" title="Afficher uniquement les journées IG">
     <input type="checkbox" id="f-journee-ig" onchange="applyFilters()">
-    <span>Journée IG</span>
+    <span>Journées IG</span>
   </label>
   <button class="btn-reset" onclick="resetFilters()" title="Réinitialiser">✕</button>
   <button class="btn-export" onclick="downloadFilteredCSV()">Télécharger CSV</button>
@@ -922,7 +922,7 @@ function voletChipHtml(label) {
 }
 
 function journeeIGChipHtml(action) {
-  return getJourneeIG(action) ? '<span class="chip-ig">Journée IG</span>' : '';
+  return getJourneeIG(action) ? '<span class="chip-ig">Journées IG</span>' : '';
 }
 
 // Normalise les valeurs simples, les listes JS et les listes Grist encodées ["L", ...]
@@ -2419,7 +2419,7 @@ function buildModalForm(a) {
         </div>
       </div>
       <div class="mfield">
-        <label>Journée IG</label>
+        <label>Journées IG</label>
         <label class="check-field">
           <input type="checkbox" id="m-journee-ig"${getJourneeIG(a) ? ' checked' : ''}>
           <span>Journée IG</span>
