@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF — Comité de pilotage</title>
-<!-- Version v9 : cartouche année scolaire visible sur les cartes -->
+<!-- Version v12 : filtres public + référents IGÉSR + normalisation nouveau référent -->
 <!-- Version v10 : filtres alignés widget-cartes-public + recherche enrichie -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -184,6 +184,7 @@ let SELECTED_REFERENT_IDS = new Set();
 const ACTION_TABLE = 'Actions_formation';
 const CONTACT_TABLE = 'Contacts';
 const REFERENTS_COL = 'Referents';
+const IGESR_STRUCTURE_ID = 2;
 
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function asList(v){ if(!v) return []; if(Array.isArray(v)) return v[0]==='L' ? v.slice(1) : v; return [v]; }
@@ -226,7 +227,32 @@ async function fetchTableSmart(preferredNames){
   console.warn('[widget-cartes-copil] Table introuvable :', preferredNames);
   return {id:[]};
 }
-function titleCaseName(s){ return String(s||'').trim().toLowerCase().replace(/(^|[\s'-])([a-zà-ÿ])/g,(m,p,c)=>p+c.toUpperCase()); }
+function normalizeNomInput(s){
+  return String(s || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleUpperCase('fr-FR');
+}
+
+function normalizePrenomInput(s){
+  const cleaned = String(s || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase('fr-FR');
+  return cleaned
+    .split(/([\s-]+)/)
+    .map(part => {
+      if(!part || /^[\s-]+$/.test(part)) return part;
+      return part.charAt(0).toLocaleUpperCase('fr-FR') + part.slice(1).toLocaleLowerCase('fr-FR');
+    })
+    .join('');
+}
+
+function normalizeEmailInput(s){
+  return String(s || '').trim().toLocaleLowerCase('fr-FR');
+}
+
+function titleCaseName(s){ return normalizePrenomInput(s); }
 function isCopilEnabled(a){ return a && (a.is_copil===true || a.is_copil===1 || String(a.is_copil).toLowerCase()==='true'); }
 function simpleLabelFromRow(r){ return firstText(r,['libelle','Libelle','Libellé','label','Label','nom','Nom','code','Code']); }
 function publicLabelFromRow(r){ return firstText(r,['Libellé','libelle','Libelle','label','Label','nom','Nom']); }
@@ -329,6 +355,22 @@ function contactLabelFromRow(r){
   return nomPrenom || [nom, prenom].filter(Boolean).join(' ').trim() || [prenom, nom].filter(Boolean).join(' ').trim() || email;
 }
 function contactEmailFromRow(r){ return firstText(r,['Email','EMAIL','email','mail']); }
+function contactStructureIdFromRow(r){
+  const raw = r && (r.Structure ?? r.structure ?? r['Structure porteuse'] ?? r.Structures ?? r.id_structure);
+  return refId(raw);
+}
+
+function isIgesrContact(r){
+  return String(contactStructureIdFromRow(r)) === String(IGESR_STRUCTURE_ID);
+}
+
+function contactRowsForReferentChoice(){
+  return CONTACT_ROWS.filter(isIgesrContact);
+}
+
+function igesrStructureLabel(){
+  return STRUCT_MAP[String(IGESR_STRUCTURE_ID)] || STRUCT_MAP[IGESR_STRUCTURE_ID] || 'IGÉSR';
+}
 function anyText(row, keys){
   for(const k of keys){
     const v = row && row[k];
@@ -749,16 +791,16 @@ function buildModalBody(){
           <div class="mfield"><label>Nom</label><input id="new-nom" type="text" placeholder="DUPONT"></div>
           <div class="mfield"><label>Prénom</label><input id="new-prenom" type="text" placeholder="Marie"></div>
           <div class="mfield"><label>Email</label><input id="new-email" type="email" placeholder="marie.dupont@igesr.gouv.fr"></div>
-          <div class="mfield"><label>Structure</label><select id="new-structure"><option value="">—</option>${STRUCT_VALUES.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select></div>
+          <div class="mfield"><label>Structure</label><select id="new-structure"><option value="${IGESR_STRUCTURE_ID}" selected>${esc(igesrStructureLabel())}</option></select></div>
           <button class="btn btn-primary" onclick="addNewReferent()">Ajouter</button>
         </div>
-        <div class="help" style="margin-top:8px">Si l’email existe déjà dans Contacts, le contact existant sera utilisé.</div>
+        <div class="help" style="margin-top:8px">Si l’email existe déjà dans Contacts, le contact existant sera utilisé. Les champs NOM, Prénom et email sont normalisés automatiquement.</div>
       </div>
     </div>
     <div>
       <div class="section-title">Choisir parmi les contacts existants</div>
       <div class="box">
-        <input class="contact-search" id="contact-search" type="text" placeholder="Filtrer les contacts…" oninput="renderContactChoices()" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:7px;margin-bottom:10px">
+        <input class="contact-search" id="contact-search" type="text" placeholder="Filtrer les contacts IGÉSR…" oninput="renderContactChoices()" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:7px;margin-bottom:10px">
         <div class="chips" id="contact-choices"></div>
       </div>
     </div>`;
@@ -766,11 +808,11 @@ function buildModalBody(){
 }
 function renderContactChoices(){
   const q=norm(document.getElementById('contact-search')?.value||'');
-  const rows=CONTACT_ROWS.filter(r=>!q || contactLabelFromRow(r).toLowerCase().includes(q) || contactEmailFromRow(r).toLowerCase().includes(q)).slice(0,200);
+  const rows=contactRowsForReferentChoice().filter(r=>!q || contactLabelFromRow(r).toLowerCase().includes(q) || contactEmailFromRow(r).toLowerCase().includes(q)).slice(0,200);
   document.getElementById('contact-choices').innerHTML = rows.map(r=>{
     const id=String(r.id); const label=contactLabelFromRow(r); const sel=SELECTED_REFERENT_IDS.has(id);
     return `<span class="chip${sel?' selected':''}" onclick="toggleReferent('${esc(id)}')">${esc(label)}</span>`;
-  }).join('') || '<span class="help">Aucun contact trouvé.</span>';
+  }).join('') || '<span class="help">Aucun contact IGÉSR trouvé.</span>';
 }
 function toggleReferent(id){
   id=String(id); if(SELECTED_REFERENT_IDS.has(id)) SELECTED_REFERENT_IDS.delete(id); else SELECTED_REFERENT_IDS.add(id);
@@ -778,15 +820,21 @@ function toggleReferent(id){
 }
 async function addNewReferent(){
   const msg=document.getElementById('msg-save'); msg.textContent=''; msg.className='msg';
-  const nomRaw=document.getElementById('new-nom').value.trim();
-  const prenomRaw=document.getElementById('new-prenom').value.trim();
-  const email=document.getElementById('new-email').value.trim().toLowerCase();
-  const structure=document.getElementById('new-structure').value;
-  if(!nomRaw || !prenomRaw || !email || !structure){ msg.textContent='✗ Renseigner nom, prénom, email et structure.'; msg.className='msg err'; return; }
+  const nomRaw=document.getElementById('new-nom').value;
+  const prenomRaw=document.getElementById('new-prenom').value;
+  const emailRaw=document.getElementById('new-email').value;
+  const NOM=normalizeNomInput(nomRaw);
+  const PRENOM=normalizePrenomInput(prenomRaw);
+  const email=normalizeEmailInput(emailRaw);
+  const structure=IGESR_STRUCTURE_ID;
+  if(!NOM || !PRENOM || !email){ msg.textContent='✗ Renseigner nom, prénom et email.'; msg.className='msg err'; return; }
+  document.getElementById('new-nom').value=NOM;
+  document.getElementById('new-prenom').value=PRENOM;
+  document.getElementById('new-email').value=email;
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ msg.textContent='✗ Adresse email invalide.'; msg.className='msg err'; return; }
   let id=CONTACT_ID_BY_EMAIL[email];
   if(!id){
-    const NOM=nomRaw.toUpperCase(); const PRENOM=titleCaseName(prenomRaw); const nomPrenom=`${NOM} ${PRENOM}`;
+    const nomPrenom=`${NOM} ${PRENOM}`;
     const fields={'Nom Prénom':nomPrenom, 'NOM':NOM, 'PRENOM':PRENOM, 'Email':email, 'Structure':structure};
     try{
       const result=await grist.docApi.applyUserActions([['AddRecord', CONTACT_TABLE, null, fields]]);
