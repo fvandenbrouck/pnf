@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF — Comité de pilotage</title>
 <!-- Version v9 : cartouche année scolaire visible sur les cartes -->
+<!-- Version v10 : filtres alignés widget-cartes-public + recherche enrichie -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -105,18 +106,49 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 .spinner { width:28px; height:28px; border:3px solid var(--border); border-top-color:var(--navy); border-radius:50%; animation:spin .7s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 @media (max-width:760px) { .info-grid,.new-contact-grid { grid-template-columns:1fr; } .grid { grid-template-columns:1fr; } .modal { max-height:98vh; } }
+
+/* ── CORRECTION MODE SOMBRE / SAFARI ──────────────────────────────── */
+html, body, input, select, textarea, button {
+  color-scheme: light;
+}
+.tb-search input,
+.tb-sel select,
+.mfield input,
+.mfield select {
+  color: var(--ink) !important;
+  -webkit-text-fill-color: var(--ink) !important;
+  caret-color: var(--ink);
+}
+.tb-search input::placeholder {
+  color: var(--ink3) !important;
+  -webkit-text-fill-color: var(--ink3) !important;
+  opacity: 1;
+}
+.tb-sel select option,
+.mfield select option {
+  color: var(--ink);
+  background: var(--white);
+}
+
 </style>
 </head>
 <body>
 <div class="toolbar">
   <div class="tb-search">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-    <input type="text" id="f-search" placeholder="Rechercher une action copil…" oninput="applyFilters()">
+    <input type="text" id="f-search" placeholder="Rechercher titre, objectif, public…" oninput="applyFilters()">
   </div>
+  <div class="tb-sel"><select id="f-annee" onchange="applyFilters()"><option value="">Années</option></select></div>
+  <div class="tb-sel"><select id="f-axe" onchange="applyFilters()"><option value="">Axes</option></select></div>
+  <div class="tb-sel"><select id="f-volet" onchange="applyFilters()"><option value="">Volets</option></select></div>
+  <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Structures</option></select></div>
+  <div class="tb-sel"><select id="f-lieu" onchange="applyFilters()"><option value="">Lieux</option></select></div>
+  <div class="tb-sel"><select id="f-public" onchange="applyFilters()"><option value="">Publics</option></select></div>
+  <div class="tb-sel"><select id="f-degre" onchange="applyFilters()"><option value="">Degrés</option></select></div>
+  <div class="tb-sel"><select id="f-modal" onchange="applyFilters()"><option value="">Modalités</option></select></div>
+  <div class="tb-sel"><select id="f-statut" onchange="applyFilters()"><option value="">Statuts</option></select></div>
+  <div class="tb-sel"><select id="f-referent" onchange="applyFilters()"><option value="">Référents</option></select></div>
   <button class="btn-download" onclick="downloadSelectionCsv()" title="Télécharger les actions affichées au format CSV">Télécharger CSV</button>
-  <div class="tb-sel"><select id="f-annee" onchange="applyFilters()"><option value="">Toutes les années</option></select></div>
-  <div class="tb-sel"><select id="f-struct" onchange="applyFilters()"><option value="">Toutes les structures</option></select></div>
-  <div class="tb-sel"><select id="f-referent" onchange="applyFilters()"><option value="">Tous les référents</option></select></div>
   <span class="count" id="count">–</span>
 </div>
 <div class="grid-wrap"><div class="grid" id="grid"></div></div>
@@ -141,11 +173,13 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
   </div>
 </div>
 <script>
-console.info('[widget-cartes-copil] version v9 année visible sur les cartes chargé');
+console.info('[widget-cartes-copil] v10 filtres alignés widget-cartes-public chargé');
 let ALL = [], FILTERED = [], CURRENT_ACTION = null, selectedId = null;
 let CONTACT_ROWS = [], STRUCT_ROWS = [], REFERENT_ROWS = [], ANNEE_ROWS = [];
 let CONTACT_MAP = {}, CONTACT_ID_BY_LABEL = {}, CONTACT_ID_BY_EMAIL = {};
 let STRUCT_VALUES = [], ANNEE_VALUES = [], ANNEE_MAP = {}, PUBLIC_MAP = {}, MODAL_MAP = {}, STRUCT_MAP = {};
+let AXE_MAP = {}, VOLET_MAP = {}, STATUT_MAP = {}, DEGRE_MAP = {}, LIEU_MAP = {}, ACTION_AXE_MAP = {};
+let AXE_VALUES = [], VOLET_VALUES = [], STATUT_VALUES = [], DEGRE_VALUES = [], LIEU_VALUES = [], SESSION_ROWS = [];
 let SELECTED_REFERENT_IDS = new Set();
 const ACTION_TABLE = 'Actions_formation';
 const CONTACT_TABLE = 'Contacts';
@@ -198,6 +232,83 @@ function simpleLabelFromRow(r){ return firstText(r,['libelle','Libelle','Libell�
 function publicLabelFromRow(r){ return firstText(r,['Libellé','libelle','Libelle','label','Label','nom','Nom']); }
 function structureLabelFromRow(r){ return firstText(r,['code','Code','libelle','Libelle','Libellé','nom','Nom','Structure']); }
 
+function axeLabelFromRow(r){ return firstText(r,['libelle','Libelle','Libellé','Axe','axe','nom','Nom','label','Label']); }
+function voletLabelFromRow(r){ return firstText(r,['libelle','Libelle','Libellé','Volet','volet','nom','Nom','label','Label']); }
+function statutLabelFromRow(r){ return firstText(r,['statut','Statut','STATUT','libelle','Libelle','Libellé','nom','Nom','label','Label']); }
+function degreLabelFromRow(r){ return firstText(r,['nom_deg','Nom_deg','NOM_DEG','Degres','Degrés','libelle','Libelle','Libellé','nom','Nom','label','Label']); }
+function lieuLabelFromRow(r){ return firstText(r,['Site','site','Lieu','lieu','Nom','nom','libelle','Libelle','Libellé','label','Label']); }
+
+function refId(v){
+  if(v === null || v === undefined || v === '') return '';
+  if(Array.isArray(v)){
+    const arr = v[0] === 'L' ? v.slice(1) : v;
+    if(arr[0] === 'R') return String(arr[arr.length - 1] || '');
+    const nums = arr.map(x => String(x || '').trim()).filter(x => /^\d+$/.test(x));
+    return nums.length ? nums[nums.length - 1] : String(arr[arr.length - 1] || '');
+  }
+  if(typeof v === 'object') return String(v.id || v.rowId || v.row_id || v.ref || v.value || '');
+  return String(v || '').trim();
+}
+
+function labelForRef(v, map){
+  if(v === null || v === undefined || v === '') return '';
+  if(Array.isArray(v) && v[0] === 'L') return v.slice(1).map(x => labelForRef(x, map)).filter(Boolean).join(', ');
+  const key = refId(v);
+  return map[key] || map[String(v || '').trim()] || String(v || '').trim();
+}
+
+function rawFromAliases(a, aliases){
+  for(const k of aliases){
+    if(Object.prototype.hasOwnProperty.call(a || {}, k) && a[k] !== undefined && a[k] !== null && a[k] !== '') return a[k];
+  }
+  return '';
+}
+
+function getAxe(a){ return labelForRef(rawFromAliases(a, ['id_axe','Axe','axe']), AXE_MAP); }
+function getVolet(a){ return labelForRef(rawFromAliases(a, ['id_volet','Volet','volet']), VOLET_MAP); }
+function getStatut(a){ return labelForRef(rawFromAliases(a, ['Statut','statut','STATUT','id_statut','id_Statut','Status','status']), STATUT_MAP); }
+function getDegres(a){
+  return labelsForList(rawFromAliases(a, ['Degre','Degres','Degré','Degrés','id_degre','id_degres','degre','degres']), DEGRE_MAP)
+    .flatMap(v => String(v || '').split(/\s*,\s*/))
+    .map(v => v.trim())
+    .filter(Boolean);
+}
+
+function sessionActionId(s){ return refId(s.Action || s.action || s.id_action || s.Action_formation || s.actions_formation); }
+function lieuValue(v){ const key = refId(v); return key ? (LIEU_MAP[key] || LIEU_MAP[String(v || '').trim()] || String(v || '').trim()) : ''; }
+function getLieux(a){
+  const actionId = String(a && a.id || '');
+  const lieux = [];
+  SESSION_ROWS
+    .filter(s => String(sessionActionId(s)) === actionId)
+    .forEach(s => {
+      for(let i=0;i<10;i++){
+        const label = lieuValue(s[`Lieu${i}`]);
+        if(label) lieux.push(label);
+      }
+    });
+  return [...new Set(lieux)];
+}
+
+function actionAxeNumeroFromRow(r){ return firstText(r, ['N° action','N_action','N_action_','numero','Numero','num']); }
+function actionAxeLibelleFromRow(r){ return firstText(r, ['libelle','Libelle','Libellé','label','Label','intitule','Intitule','Intitulé']); }
+function actionAxeLabelFromRow(r){ const n = actionAxeNumeroFromRow(r); const l = actionAxeLibelleFromRow(r); return [n,l].filter(Boolean).join(' - '); }
+function buildActionAxeMap(rows){
+  const entries = [];
+  const add = (k,l) => { const key = String(k || '').trim(); if(key && l) entries.push([key,l]); };
+  rows.forEach(r => {
+    const label = actionAxeLabelFromRow(r);
+    if(!label) return;
+    const id = String(r.id || '').trim();
+    const numero = String(actionAxeNumeroFromRow(r) || '').trim();
+    if(id){ add(id,label); add(`Actions_axes[${id}]`,label); add(`R,Actions_axes,${id}`,label); }
+    if(numero) add(numero,label);
+    add(label,label);
+  });
+  return Object.fromEntries(entries);
+}
+function getActionAxe(a){ return labelForRef(rawFromAliases(a, ['action_axe_affichage','Action_axe_affichage','Action complète','Action_complete','Action du schéma directeur','id_action_schema','id_action_axe','id_action_referentiel','action_axe','action_schema','Action_schema','Action_schéma','Action_sch_ma','Action (schéma directeur)']), ACTION_AXE_MAP); }
+
 function anneeLabelFromRow(r){
   return firstText(r,[
     'Annee_scolaire','Année scolaire','Annee scolaire','annee_scolaire',
@@ -207,9 +318,6 @@ function anneeLabelFromRow(r){
 function getAnnee(a){
   const raw = a && (a.Annee_scolaire || a['Année scolaire'] || a['Annee scolaire'] || a.annee_scolaire || a.Ann_e_scolaire || a.Annee || a['Année'] || a.annee || a.id_annee || a.id_annees || a.Annees || a['Années']);
   return labelForRef(raw, ANNEE_MAP);
-}
-function getVolet(a){
-  return labelForRef(a && (a.id_volet || a.Volet || a.volet), {});
 }
 function contactLabelFromRow(r){
   // Libellé d'affichage des référents : utiliser d'abord la colonne exacte "Nom Prénom" de Contacts.
@@ -292,7 +400,6 @@ function rebuildContactIndexes(){
     if(email) CONTACT_ID_BY_EMAIL[email]=id;
   });
 }
-function labelForRef(v, map){ const key=String(v||'').trim(); return map[v] || map[key] || key; }
 function labelsForList(v,map){ return asList(v).map(x=>labelForRef(x,map)).filter(Boolean); }
 function referentIdsFromAction(a){
   const vals = asList(a && a[REFERENTS_COL]);
@@ -317,13 +424,20 @@ async function loadData(records){
   showLoader(true);
   try{
     let attempts=0; while(!grist.docApi && attempts<20){ await new Promise(r=>setTimeout(r,100)); attempts++; }
-    const [contacts, structures, publics, modalites, referents, annees] = await Promise.all([
+    const [contacts, structures, publics, modalites, referents, annees, axes, volets, statuts, degres, lieux, sessions, actionsAxes] = await Promise.all([
       grist.docApi.fetchTable('Contacts').catch(()=>({id:[]})),
       grist.docApi.fetchTable('Structures').catch(()=>({id:[]})),
       grist.docApi.fetchTable('Publics').catch(()=>({id:[]})),
       grist.docApi.fetchTable('Modalites').catch(()=>({id:[]})),
       fetchTableSmart(['Referents','Référents','Referent','Référent']).catch(()=>({id:[]})),
       grist.docApi.fetchTable('Annees').catch(()=>({id:[]})),
+      grist.docApi.fetchTable('Axes').catch(()=>({id:[]})),
+      grist.docApi.fetchTable('Volets').catch(()=>({id:[]})),
+      grist.docApi.fetchTable('Statut').catch(()=>({id:[], statut:[]})),
+      grist.docApi.fetchTable('Degres').catch(()=>({id:[], nom_deg:[]})),
+      grist.docApi.fetchTable('Lieux').catch(()=>({id:[], Site:[]})),
+      grist.docApi.fetchTable('Journal_sessions').catch(()=>({id:[]})),
+      grist.docApi.fetchTable('Actions_axes').catch(()=>({id:[], 'N° action':[], libelle:[], Libelle:[], 'Libellé':[]})),
     ]);
     CONTACT_ROWS = toRows(contacts); STRUCT_ROWS = toRows(structures); REFERENT_ROWS = toRows(referents); ANNEE_ROWS = toRows(annees);
     rebuildContactIndexes();
@@ -333,6 +447,19 @@ async function loadData(records){
     STRUCT_VALUES = [...new Set(STRUCT_ROWS.map(structureLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
     ANNEE_MAP = Object.fromEntries(ANNEE_ROWS.map(r=>[r.id, anneeLabelFromRow(r)]).filter(([,v])=>v));
     ANNEE_VALUES = [...new Set(ANNEE_ROWS.map(anneeLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
+    const AXE_ROWS = toRows(axes), VOLET_ROWS = toRows(volets), STATUT_ROWS = toRows(statuts), DEGRE_ROWS = toRows(degres), LIEU_ROWS = toRows(lieux), ACTION_AXE_ROWS = toRows(actionsAxes);
+    AXE_MAP = Object.fromEntries(AXE_ROWS.map(r=>[String(r.id), axeLabelFromRow(r)]).filter(([,v])=>v));
+    VOLET_MAP = Object.fromEntries(VOLET_ROWS.map(r=>[String(r.id), voletLabelFromRow(r)]).filter(([,v])=>v));
+    STATUT_MAP = Object.fromEntries(STATUT_ROWS.map(r=>[String(r.id), statutLabelFromRow(r)]).filter(([,v])=>v));
+    DEGRE_MAP = Object.fromEntries(DEGRE_ROWS.map(r=>[String(r.id), degreLabelFromRow(r)]).filter(([,v])=>v));
+    LIEU_MAP = Object.fromEntries(LIEU_ROWS.map(r=>[String(r.id), lieuLabelFromRow(r)]).filter(([,v])=>v));
+    ACTION_AXE_MAP = buildActionAxeMap(ACTION_AXE_ROWS);
+    AXE_VALUES = [...new Set(AXE_ROWS.map(axeLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
+    VOLET_VALUES = [...new Set(VOLET_ROWS.map(voletLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
+    STATUT_VALUES = [...new Set(STATUT_ROWS.map(statutLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
+    DEGRE_VALUES = [...new Set(DEGRE_ROWS.map(degreLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
+    LIEU_VALUES = [...new Set(LIEU_ROWS.map(lieuLabelFromRow).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
+    SESSION_ROWS = toRows(sessions);
     ALL = (records||[]).map(r=>({id:r.id,...r})).filter(isCopilEnabled);
     buildFilterControls();
     applyFilters();
@@ -365,22 +492,29 @@ function fillSelect(selId, values, firstLabel){
 }
 
 function buildFilterControls(){
-  const structureValues = [...new Set(ALL.flatMap(a => getStructures(a)).map(s => String(s||'').trim()).filter(Boolean))]
-    .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
-  const anneeValues = [...new Set((ANNEE_VALUES.length ? ANNEE_VALUES : ALL.map(getAnnee))
+  const valuesFromActions = getter => [...new Set(ALL.flatMap(a => getter(a))
     .map(s => String(s||'').trim()).filter(Boolean))]
     .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
 
-  // Le filtre Référents liste les valeurs de la table Referents.
-  // Si la table contient une référence vers Contacts, la valeur est convertie en "Nom Prénom".
+  const structureValues = valuesFromActions(getStructures);
+  const anneeValues = [...new Set((ANNEE_VALUES.length ? ANNEE_VALUES : ALL.map(getAnnee))
+    .map(s => String(s||'').trim()).filter(Boolean))]
+    .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
+  const axeValues = AXE_VALUES.length ? AXE_VALUES : valuesFromActions(a => [getAxe(a)]);
+  const voletValues = VOLET_VALUES.length ? VOLET_VALUES : valuesFromActions(a => [getVolet(a)]);
+  const lieuValues = LIEU_VALUES.length ? LIEU_VALUES : valuesFromActions(getLieux);
+  const publicValues = valuesFromActions(getPublics);
+  const degreValues = DEGRE_VALUES.length ? DEGRE_VALUES : valuesFromActions(getDegres);
+  const modalValues = valuesFromActions(a => [getModalite(a)]);
+  const statutValues = STATUT_VALUES.length ? STATUT_VALUES : valuesFromActions(a => [getStatut(a)]);
+
+  // Le filtre Référents reste spécifique au widget COPIL.
   let referentValues = [...new Set(REFERENT_ROWS
     .map(referentFilterLabelFromRow)
     .map(s => String(s||'').trim())
     .filter(Boolean))]
     .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
 
-  // Secours : si la table Referents est vide ou inaccessible, on ne laisse pas le filtre vide ;
-  // on reprend les référents effectivement associés aux actions copil.
   if(!referentValues.length){
     referentValues = [...new Set(ALL
       .flatMap(a => referentIdsFromAction(a).map(id => CONTACT_MAP[id]).filter(Boolean))
@@ -390,12 +524,17 @@ function buildFilterControls(){
     console.warn('[widget-cartes-copil] Table Referents vide ou non résolue : filtre alimenté par les référents déjà inscrits.');
   }
 
-  console.info('[widget-cartes-copil] Options filtre Référents :', referentValues);
-  fillSelect('f-annee', anneeValues, 'Toutes les années');
-  fillSelect('f-struct', structureValues, 'Toutes les structures');
-  fillSelect('f-referent', referentValues, 'Tous les référents');
+  fillSelect('f-annee', anneeValues, 'Années');
+  fillSelect('f-axe', axeValues, 'Axes');
+  fillSelect('f-volet', voletValues, 'Volets');
+  fillSelect('f-struct', structureValues, 'Structures');
+  fillSelect('f-lieu', lieuValues, 'Lieux');
+  fillSelect('f-public', publicValues, 'Publics');
+  fillSelect('f-degre', degreValues, 'Degrés');
+  fillSelect('f-modal', modalValues, 'Modalités');
+  fillSelect('f-statut', statutValues, 'Statuts');
+  fillSelect('f-referent', referentValues, 'Référents');
 }
-
 
 async function refreshReferentsTableAndFilters(){
   try{
@@ -419,21 +558,31 @@ function downloadSelectionCsv(){
       titre: String(a.titre || 'Sans titre'),
       objectif: String(a.objectif || '').replace(/\n/g, ' ').trim(),
       annee_scolaire: getAnnee(a),
+      axe: getAxe(a),
+      volet: getVolet(a),
+      lieu: getLieux(a).join(', '),
+      degre: getDegres(a).join(', '),
       modalite: getModalite(a),
+      statut: getStatut(a),
       structure: getStructures(a).join(', '),
       publics: getPublics(a).join(', '),
       referents: refs.join(', ')
     };
   });
 
-  const headers = ['titre','objectif','année scolaire','modalité','structure','publics','referents'];
+  const headers = ['titre','objectif','année scolaire','axe','volet','lieu','degré','modalité','statut','structure','publics','referents'];
   const lines = [headers.map(csvCell).join(';')];
   rows.forEach(r => {
     lines.push([
       r.titre,
       r.objectif,
       r.annee_scolaire,
+      r.axe,
+      r.volet,
+      r.lieu,
+      r.degre,
       r.modalite,
+      r.statut,
       r.structure,
       r.publics,
       r.referents
@@ -453,37 +602,70 @@ function downloadSelectionCsv(){
   URL.revokeObjectURL(url);
 }
 
+function normalizeSearch(s){
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+}
+
+function searchableText(a, referentLabels){
+  return [
+    a.code_gaia, a.Code_GAIA, a['Code GAIA'], a.GAIA, a.Code,
+    a.titre, a.Titre,
+    a.objectif, a.Objectif,
+    getAnnee(a),
+    getAxe(a),
+    getVolet(a),
+    getActionAxe(a),
+    getModalite(a),
+    getStatut(a),
+    getStructures(a).join(' '),
+    getLieux(a).join(' '),
+    getPublics(a).join(' '),
+    getDegres(a).join(' '),
+    (referentLabels || []).join(' ')
+  ].join(' ');
+}
+
 function applyFilters(){
-  const q = document.getElementById('f-search').value.toLowerCase().trim();
+  const q = normalizeSearch(document.getElementById('f-search').value);
   const anneeFilter = document.getElementById('f-annee')?.value || '';
+  const axeFilter = document.getElementById('f-axe')?.value || '';
+  const voletFilter = document.getElementById('f-volet')?.value || '';
   const structFilter = document.getElementById('f-struct')?.value || '';
+  const lieuFilter = document.getElementById('f-lieu')?.value || '';
+  const publicFilter = document.getElementById('f-public')?.value || '';
+  const degreFilter = document.getElementById('f-degre')?.value || '';
+  const modalFilter = document.getElementById('f-modal')?.value || '';
+  const statutFilter = document.getElementById('f-statut')?.value || '';
   const referentFilter = document.getElementById('f-referent')?.value || '';
 
   FILTERED = ALL.filter(a=>{
     const annee = getAnnee(a);
+    const axe = getAxe(a);
+    const volet = getVolet(a);
     const structs = getStructures(a);
+    const lieux = getLieux(a);
+    const publics = getPublics(a);
+    const degres = getDegres(a);
+    const modal = getModalite(a);
+    const statut = getStatut(a);
     const referentIds = referentIdsFromAction(a).map(id=>String(id));
     const referentLabels = referentIds.map(id=>CONTACT_MAP[id]).filter(Boolean);
 
     if(anneeFilter && annee !== anneeFilter) return false;
+    if(axeFilter && axe !== axeFilter) return false;
+    if(voletFilter && volet !== voletFilter) return false;
     if(structFilter && !structs.includes(structFilter)) return false;
+    if(lieuFilter && !lieux.includes(lieuFilter)) return false;
+    if(publicFilter && !publics.includes(publicFilter)) return false;
+    if(degreFilter && !degres.includes(degreFilter)) return false;
+    if(modalFilter && modal !== modalFilter) return false;
+    if(statutFilter && statut !== statutFilter) return false;
     if(referentFilter && !referentLabels.includes(String(referentFilter))) return false;
-
-    if(!q) return true;
-    const hay = [
-      a.code_gaia,
-      a.Code_GAIA,
-      a['Code GAIA'],
-      a.GAIA,
-      a.titre,
-      a.objectif,
-      getAnnee(a),
-      getModalite(a),
-      structs.join(' '),
-      getPublics(a).join(' '),
-      referentLabels.join(' ')
-    ].join(' ').toLowerCase();
-    return hay.includes(q);
+    if(q && !normalizeSearch(searchableText(a, referentLabels)).includes(q)) return false;
+    return true;
   });
   document.getElementById('count').textContent = `${FILTERED.length} action${FILTERED.length>1?'s':''}`;
   render();
@@ -496,16 +678,32 @@ function render(){
     const structs=getStructures(a);
     const publics=getPublics(a);
     const refs=referentIdsFromAction(a).map(id=>CONTACT_MAP[id]).filter(Boolean);
-    const objectif = String(a.objectif||'').replace(/\n/g,' ').trim();
+    const objectif = String(a.objectif||a.Objectif||'').replace(/\n/g,' ').trim();
     const annee = getAnnee(a);
+    const axe = getAxe(a);
+    const volet = getVolet(a);
+    const lieux = getLieux(a);
+    const degres = getDegres(a);
+    const statut = getStatut(a);
+    const actionAxe = getActionAxe(a);
+    const gaia = a.code_gaia || a.Code_GAIA || a['Code GAIA'] || a.GAIA || a.Code || '';
     return `<div class="card${a.id===selectedId?' selected':''}" data-id="${a.id}" onclick="openModal(${a.id})">
       <div class="card-band"></div><div class="card-body">
-      ${annee ? `<div class="card-top"><span class="chip-annee">${esc(annee)}</span></div>` : ''}
-      <div class="card-title">${esc(a.titre||'Sans titre')}</div>
+      <div class="card-top">
+        ${annee ? `<span class="chip-annee">${esc(annee)}</span>` : ''}
+        ${volet ? `<span class="tag tag-ref">${esc(volet)}</span>` : ''}
+        ${gaia ? `<span class="chip-annee">GAIA&nbsp;${esc(gaia)}</span>` : ''}
+      </div>
+      <div class="card-title">${esc(a.titre||a.Titre||'Sans titre')}</div>
       ${objectif?`<div class="card-objectif">${esc(objectif)}</div>`:''}
       <div class="card-sep"></div>
+      ${axe?`<div class="meta-row"><span class="meta-label">Axe</span><div class="tags"><span class="tag tag-ref">${esc(axe)}</span></div></div>`:''}
+      ${actionAxe?`<div class="meta-row"><span class="meta-label">Action</span><div class="tags"><span class="tag tag-ref">${esc(actionAxe)}</span></div></div>`:''}
+      ${degres.length?`<div class="meta-row"><span class="meta-label">Degrés</span><div class="tags">${degres.map(d=>`<span class="tag tag-ref">${esc(d)}</span>`).join('')}</div></div>`:''}
       ${modal?`<div class="meta-row"><span class="meta-label">Modalité</span><div class="tags"><span class="tag tag-modal">${esc(modal)}</span></div></div>`:''}
+      ${statut?`<div class="meta-row"><span class="meta-label">Statut</span><div class="tags"><span class="tag tag-ref">${esc(statut)}</span></div></div>`:''}
       ${structs.length?`<div class="meta-row"><span class="meta-label">Structure</span><div class="tags">${structs.map(s=>`<span class="tag tag-struct">${esc(s)}</span>`).join('')}</div></div>`:''}
+      ${lieux.length?`<div class="meta-row"><span class="meta-label">Lieux</span><div class="tags">${lieux.map(l=>`<span class="tag tag-public">${esc(l)}</span>`).join('')}</div></div>`:''}
       ${publics.length?`<div class="meta-row"><span class="meta-label">Publics</span><div class="tags">${publics.map(p=>`<span class="tag tag-public">${esc(p)}</span>`).join('')}</div></div>`:''}
       ${refs.length?`<div class="meta-row"><span class="meta-label">Référents</span><div class="tags">${refs.map(r=>`<span class="tag tag-ref">${esc(r)}</span>`).join('')}</div></div>`:''}
       </div></div>`;
@@ -515,20 +713,27 @@ function openModal(id){
   const a=ALL.find(x=>x.id===id); if(!a) return;
   CURRENT_ACTION=a; selectedId=id; SELECTED_REFERENT_IDS=new Set(referentIdsFromAction(a));
   document.getElementById('modal-title').textContent=a.titre||'Sans titre';
-  document.getElementById('modal-meta').textContent=['Comité de pilotage', getAnnee(a), 'référents'].filter(Boolean).join(' · ');
+  document.getElementById('modal-meta').textContent=['Comité de pilotage', getAnnee(a), getVolet(a), getStatut(a), 'référents'].filter(Boolean).join(' · ');
   buildModalBody();
   document.getElementById('msg-save').textContent=''; document.getElementById('msg-save').className='msg';
   document.getElementById('overlay').classList.remove('hidden');
 }
 function closeModal(e){ if(e && e.target!==document.getElementById('overlay')) return; document.getElementById('overlay').classList.add('hidden'); CURRENT_ACTION=null; }
 function buildModalBody(){
-  const a=CURRENT_ACTION; const modal=getModalite(a); const structs=getStructures(a); const publics=getPublics(a); const refs=[...SELECTED_REFERENT_IDS].map(id=>({id,label:CONTACT_MAP[id]})).filter(x=>x.label);
+  const a=CURRENT_ACTION; const modal=getModalite(a); const structs=getStructures(a); const publics=getPublics(a); const refs=[...SELECTED_REFERENT_IDS].map(id=>({id,label:CONTACT_MAP[id]})).filter(x=>x.label); const annee=getAnnee(a), axe=getAxe(a), volet=getVolet(a), statut=getStatut(a), actionAxe=getActionAxe(a), lieux=getLieux(a), degres=getDegres(a);
   document.getElementById('modal-body').innerHTML = `
-    <div><div class="section-title">Objectif</div><div class="box description">${esc(a.objectif||'')}</div></div>
+    <div><div class="section-title">Objectif</div><div class="box description">${esc(a.objectif||a.Objectif||'')}</div></div>
     <div class="info-grid">
+      <div><div class="section-title">Année</div><div class="box tags">${annee?`<span class="tag tag-ref">${esc(annee)}</span>`:'—'}</div></div>
+      <div><div class="section-title">Volet</div><div class="box tags">${volet?`<span class="tag tag-ref">${esc(volet)}</span>`:'—'}</div></div>
+      <div><div class="section-title">Axe</div><div class="box tags">${axe?`<span class="tag tag-ref">${esc(axe)}</span>`:'—'}</div></div>
+      <div><div class="section-title">Degrés</div><div class="box tags">${degres.map(d=>`<span class="tag tag-ref">${esc(d)}</span>`).join('')||'—'}</div></div>
       <div><div class="section-title">Modalité</div><div class="box tags">${modal?`<span class="tag tag-modal">${esc(modal)}</span>`:'—'}</div></div>
+      <div><div class="section-title">Statut</div><div class="box tags">${statut?`<span class="tag tag-ref">${esc(statut)}</span>`:'—'}</div></div>
       <div><div class="section-title">Structure porteuse</div><div class="box tags">${structs.map(s=>`<span class="tag tag-struct">${esc(s)}</span>`).join('')||'—'}</div></div>
+      <div><div class="section-title">Lieux</div><div class="box tags">${lieux.map(l=>`<span class="tag tag-public">${esc(l)}</span>`).join('')||'—'}</div></div>
     </div>
+    <div><div class="section-title">Action du schéma directeur</div><div class="box description">${esc(actionAxe||'—')}</div></div>
     <div><div class="section-title">Publics cibles</div><div class="box tags">${publics.map(p=>`<span class="tag tag-public">${esc(p)}</span>`).join('')||'—'}</div></div>
     <div>
       <div class="section-title">Référents inscrits</div>
