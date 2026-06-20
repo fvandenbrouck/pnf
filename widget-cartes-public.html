@@ -8,6 +8,7 @@
 <!-- Version corrigée : filtre Degrés depuis Degres.nom_deg -->
 <!-- Version v48 : filtres alignés widget-cartes + lieux + correction mode sombre -->
 <!-- Version v49 : filtre Journées IG + vignettes Volet/Journées IG -->
+<!-- Version v50 : lecture robuste du booléen Actions_formation.JourneeIG -->
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -569,7 +570,7 @@ html, body, input, select, textarea, button {
 </div>
 
 <script>
-console.info('[widget-cartes-public] v49 filtre Journées IG + vignettes Volet/Journées IG chargé');
+console.info('[widget-cartes-public] v50 filtre Journées IG robuste sur Actions_formation.JourneeIG chargé');
 
 // Widget public — lecture seule.
 // Important : ce widget ne demande que l'accès « read table » et ne contient aucune action AddRecord/UpdateRecord.
@@ -1383,7 +1384,27 @@ grist.onRecords(async (records) => {
   showLoader(true);
   try {
     await Promise.all([loadActionAxeMapIfAllowed(), loadPublicValuesIfAllowed(), loadDegreValuesIfAllowed(), loadLieuxSessionsIfAllowed()]);
-    ALL = (records || []).map(r => ({ id: r.id, ...r }));
+
+    const incomingRows = (records || []).map(r => ({ id: r.id, ...r }));
+    let fullActionRows = [];
+    try {
+      const actionTable = await grist.docApi.fetchTable('Actions_formation');
+      fullActionRows = (actionTable && actionTable.id || []).map((id, i) => {
+        const row = { id };
+        Object.keys(actionTable || {}).forEach(k => {
+          if (k !== 'id') row[k] = actionTable[k][i];
+        });
+        return row;
+      });
+    } catch(e) {
+      console.warn('[widget-cartes-public] Lecture complète Actions_formation impossible : repli sur les lignes transmises au widget.', e);
+    }
+
+    const fullById = Object.fromEntries(fullActionRows.map(r => [String(r.id), r]));
+    ALL = incomingRows.length
+      ? incomingRows.map(r => ({ ...(fullById[String(r.id)] || {}), ...r }))
+      : fullActionRows;
+
     buildFilters();
     applyFilters();
   } catch(e) {
