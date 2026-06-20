@@ -551,19 +551,27 @@ function buildFilterControls(){
   const statutValues = STATUT_VALUES.length ? STATUT_VALUES : valuesFromActions(a => [getStatut(a)]);
 
   // Le filtre Référents reste spécifique au widget COPIL.
-  let referentValues = [...new Set(REFERENT_ROWS
-    .map(referentFilterLabelFromRow)
+  // Il est volontairement limité aux contacts IGÉSR, en testant la référence Contacts.Structure sur $id = 2.
+  // Cela évite d'afficher dans la barre des filtres des référents rattachés à d'autres structures.
+  const igesrContactIds = new Set(contactRowsForReferentChoice().map(r => String(r.id)));
+  let referentValues = [...new Set(CONTACT_ROWS
+    .filter(r => igesrContactIds.has(String(r.id)))
+    .map(contactLabelFromRow)
     .map(s => String(s||'').trim())
     .filter(Boolean))]
     .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
 
   if(!referentValues.length){
     referentValues = [...new Set(ALL
-      .flatMap(a => referentIdsFromAction(a).map(id => CONTACT_MAP[id]).filter(Boolean))
+      .flatMap(a => referentIdsFromAction(a)
+        .map(id => String(id))
+        .filter(id => igesrContactIds.has(id))
+        .map(id => CONTACT_MAP[id])
+        .filter(Boolean))
       .map(s => String(s||'').trim())
       .filter(Boolean))]
       .sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
-    console.warn('[widget-cartes-copil] Table Referents vide ou non résolue : filtre alimenté par les référents déjà inscrits.');
+    console.warn('[widget-cartes-copil] Aucun contact IGÉSR résolu depuis Contacts : filtre Référents alimenté par les référents IGÉSR déjà inscrits.');
   }
 
   fillSelect('f-annee', anneeValues, 'Années');
