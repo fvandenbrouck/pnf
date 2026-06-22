@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cartes PNF — Comité de pilotage</title>
+<!-- Version v15 : email référent imposé au domaine @igesr.gouv.fr et structure IGÉSR masquée/imposée -->
 <!-- Version v14 : tri alphabétique des contacts IGÉSR par NOM dans la modale -->
 <!-- Version v13 : filtre Référents limité aux contacts IGÉSR dans la barre des filtres -->
 <!-- Version v12 : filtres public + référents IGÉSR + normalisation nouveau référent -->
@@ -87,7 +88,12 @@ html, body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(-
 .mfield label { font-family:'DM Mono',monospace; color:var(--ink3); text-transform:uppercase; letter-spacing:.08em; font-size:9px; font-weight:600; }
 .mfield input, .mfield select { font-family:'DM Sans',sans-serif; font-size:12px; padding:8px 10px; border:1.5px solid var(--border); border-radius:7px; background:var(--white); outline:none; }
 .mfield input:focus, .mfield select:focus { border-color:var(--navy); }
-.new-contact-grid { display:grid; grid-template-columns:1fr 1fr 1.4fr 1fr auto; gap:10px; align-items:end; }
+.new-contact-grid { display:grid; grid-template-columns:1fr 1fr 1.4fr auto; gap:10px; align-items:end; }
+.email-local-wrap { display:flex; align-items:center; border:1.5px solid var(--border); border-radius:7px; background:var(--white); overflow:hidden; }
+.email-local-wrap:focus-within { border-color:var(--navy); }
+.email-local-wrap input { border:none !important; border-radius:0 !important; flex:1; min-width:0; }
+.email-local-wrap input:focus { border:none !important; }
+.email-fixed-domain { font-family:'DM Mono',monospace; font-size:11px; color:var(--ink3); background:var(--bg); border-left:1px solid var(--border); padding:8px 10px; white-space:nowrap; }
 .btn { font-family:'DM Sans',sans-serif; font-size:12px; font-weight:600; padding:9px 14px; border-radius:7px; cursor:pointer; border:1.5px solid var(--border); background:var(--white); color:var(--ink2); }
 .btn-primary { background:var(--navy); color:#fff; border-color:var(--navy); }
 .btn-primary:hover { background:#0d2a52; }
@@ -175,7 +181,7 @@ html, body, input, select, textarea, button {
   </div>
 </div>
 <script>
-console.info('[widget-cartes-copil] v10 filtres alignés widget-cartes-public chargé');
+console.info('[widget-cartes-copil] v15 email IGÉSR imposé chargé');
 let ALL = [], FILTERED = [], CURRENT_ACTION = null, selectedId = null;
 let CONTACT_ROWS = [], STRUCT_ROWS = [], REFERENT_ROWS = [], ANNEE_ROWS = [];
 let CONTACT_MAP = {}, CONTACT_ID_BY_LABEL = {}, CONTACT_ID_BY_EMAIL = {};
@@ -187,6 +193,7 @@ const ACTION_TABLE = 'Actions_formation';
 const CONTACT_TABLE = 'Contacts';
 const REFERENTS_COL = 'Referents';
 const IGESR_STRUCTURE_ID = 2;
+const IGESR_EMAIL_DOMAIN = '@igesr.gouv.fr';
 
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function asList(v){ if(!v) return []; if(Array.isArray(v)) return v[0]==='L' ? v.slice(1) : v; return [v]; }
@@ -252,6 +259,22 @@ function normalizePrenomInput(s){
 
 function normalizeEmailInput(s){
   return String(s || '').trim().toLocaleLowerCase('fr-FR');
+}
+
+function normalizeIgesrEmailLocalInput(s){
+  let value = String(s || '')
+    .trim()
+    .toLocaleLowerCase('fr-FR')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/\s+/g, '');
+  // Tolérer le collage d'une adresse complète IGÉSR, mais ne conserver que la partie locale.
+  if(value.endsWith(IGESR_EMAIL_DOMAIN)) value = value.slice(0, -IGESR_EMAIL_DOMAIN.length);
+  return value;
+}
+
+function buildIgesrEmail(localPart){
+  const local = normalizeIgesrEmailLocalInput(localPart);
+  return local ? `${local}${IGESR_EMAIL_DOMAIN}` : '';
 }
 
 function titleCaseName(s){ return normalizePrenomInput(s); }
@@ -830,11 +853,10 @@ function buildModalBody(){
         <div class="new-contact-grid">
           <div class="mfield"><label>Nom</label><input id="new-nom" type="text" placeholder="DUPONT"></div>
           <div class="mfield"><label>Prénom</label><input id="new-prenom" type="text" placeholder="Marie"></div>
-          <div class="mfield"><label>Email</label><input id="new-email" type="email" placeholder="marie.dupont@igesr.gouv.fr"></div>
-          <div class="mfield"><label>Structure</label><select id="new-structure"><option value="${IGESR_STRUCTURE_ID}" selected>${esc(igesrStructureLabel())}</option></select></div>
+          <div class="mfield"><label>Email IGÉSR</label><div class="email-local-wrap"><input id="new-email" type="text" inputmode="email" autocomplete="off" placeholder="prenom.nom"><span class="email-fixed-domain">${IGESR_EMAIL_DOMAIN}</span></div></div>
           <button class="btn btn-primary" onclick="addNewReferent()">Ajouter</button>
         </div>
-        <div class="help" style="margin-top:8px">Si l’email existe déjà dans Contacts, le contact existant sera utilisé. Les champs NOM, Prénom et email sont normalisés automatiquement.</div>
+        <div class="help" style="margin-top:8px">Saisir uniquement la partie <b>prenom.nom</b> : le domaine <b>${IGESR_EMAIL_DOMAIN}</b> et la structure <b>${esc(igesrStructureLabel())}</b> sont imposés automatiquement. Si l’adresse existe déjà dans Contacts, le contact existant sera utilisé.</div>
       </div>
     </div>
     <div>
@@ -869,13 +891,20 @@ async function addNewReferent(){
   const emailRaw=document.getElementById('new-email').value;
   const NOM=normalizeNomInput(nomRaw);
   const PRENOM=normalizePrenomInput(prenomRaw);
-  const email=normalizeEmailInput(emailRaw);
+  const emailLocal=normalizeIgesrEmailLocalInput(emailRaw);
+  const email=buildIgesrEmail(emailLocal);
   const structure=IGESR_STRUCTURE_ID;
-  if(!NOM || !PRENOM || !email){ msg.textContent='✗ Renseigner nom, prénom et email.'; msg.className='msg err'; return; }
+  if(!NOM || !PRENOM || !emailLocal){ msg.textContent='✗ Renseigner nom, prénom et identifiant email IGÉSR.'; msg.className='msg err'; return; }
   document.getElementById('new-nom').value=NOM;
   document.getElementById('new-prenom').value=PRENOM;
-  document.getElementById('new-email').value=email;
-  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ msg.textContent='✗ Adresse email invalide.'; msg.className='msg err'; return; }
+  document.getElementById('new-email').value=emailLocal;
+  if(emailRaw.includes('@') && !normalizeEmailInput(emailRaw).endsWith(IGESR_EMAIL_DOMAIN)){
+    msg.textContent=`✗ Domaine interdit : seule l’adresse ${IGESR_EMAIL_DOMAIN} est autorisée.`;
+    msg.className='msg err';
+    return;
+  }
+  if(!/^[a-z0-9._%+-]+$/.test(emailLocal)){ msg.textContent='✗ Identifiant email invalide. Utiliser uniquement la forme prenom.nom.'; msg.className='msg err'; return; }
+  if(!/^[^\s@]+@igesr\.gouv\.fr$/.test(email)){ msg.textContent='✗ Adresse email IGÉSR invalide.'; msg.className='msg err'; return; }
   let id=CONTACT_ID_BY_EMAIL[email];
   if(!id){
     const nomPrenom=`${NOM} ${PRENOM}`;
